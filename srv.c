@@ -14,16 +14,54 @@
 
 #include "fde.h"
 
-/*
- * Create a listen socket on the given ipv4 socket.
- */
+struct thr;
+struct conn;
+
+struct conn {
+	int fd;
+	struct thr *parent;
+	TAILQ_ENTRY(conn) node;
+	struct fde *ev_read, *ev_write;
+};
 
 struct thr {
 	pthread_t thr_id;
 	int thr_sockfd;
 	struct fde_head *h;
 	struct fde *ev_listen;
+	TAILQ_HEAD(, conn) conn_list;
 };
+
+static void
+conn_read_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+
+}
+
+static void
+conn_write_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+
+}
+
+struct conn *
+conn_new(struct thr *r, int fd)
+{
+	struct conn *c;
+
+	c = calloc(1, sizeof(*c));
+	if (c == NULL) {
+		warn("%s: calloc", __func__);
+		return (NULL);
+	}
+	c->fd = fd;
+	c->parent = r;
+	c->ev_read = fde_create(r->h, fd, FDE_T_READ, conn_read_cb, r);
+	c->ev_write = fde_create(r->h, fd, FDE_T_WRITE, conn_write_cb, r);
+	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
+
+	return (c);
+}
 
 static void
 thrsrv_listen_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
@@ -32,6 +70,7 @@ thrsrv_listen_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	int new_fd;
 	struct sockaddr_storage s;
 	socklen_t slen;
+	struct conn *c;
 
 	bzero(&s, sizeof(s));
 	slen = sizeof(s);
@@ -56,9 +95,10 @@ thrsrv_listen_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 			break;
 		}
 		fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, new_fd);
-
-		/* XXX for now */
-		close(new_fd);
+		c = conn_new(r, new_fd);
+		if (c == NULL) {
+			close(new_fd);
+		}
 	}
 
 	/* Re-add the event, as it's a oneshot */
@@ -165,6 +205,7 @@ main(int argc, const char *argv[])
 		r = &rp[i];
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
+		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");
 	}

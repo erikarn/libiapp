@@ -36,22 +36,32 @@ thrsrv_listen_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	bzero(&s, sizeof(s));
 	slen = sizeof(s);
 
-	new_fd = accept(r->thr_sockfd, (struct sockaddr *) &s, &slen);
-	fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, new_fd);
-	if (new_fd < 0) {
-		fprintf(stderr, "%s: %p: err; errno=%d (%s)\n",
-		    __func__,
-		    r,
-		    errno,
-		    strerror(errno));
-		goto finish;
+	/*
+	 * XXX
+	 *
+	 * It seems that all the threads wake up when a new connection
+	 * comes in.  Those that didn't win will simply get EAGAIN.
+	 */
+
+	while (1) {
+		new_fd = accept(r->thr_sockfd, (struct sockaddr *) &s, &slen);
+		if (new_fd < 0) {
+#if 0
+			fprintf(stderr, "%s: %p: err; errno=%d (%s)\n",
+			    __func__,
+			    r,
+			    errno,
+			    strerror(errno));
+#endif
+			break;
+		}
+		fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, new_fd);
+
+		/* XXX for now */
+		close(new_fd);
 	}
 
-	/* XXX for now */
-	close(new_fd);
-
-finish:
-	/* Re-add */
+	/* Re-add the event, as it's a oneshot */
 	fde_add(r->h, r->ev_listen);
 }
 

@@ -1,4 +1,4 @@
-SRCS=test.c fde.c
+SRCS=srv.c fde.c
 PROG=main
 NO_MAN=1
 LDADD=	-lpthread

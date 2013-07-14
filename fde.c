@@ -176,5 +176,21 @@ fde_runloop(struct fde_head *fh, const struct timespec *timeout)
 		TAILQ_REMOVE(&fh->f_head, f, node);
 		if (f->cb)
 			f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
+		/*
+		 * XXX at this point, 'f' may be totally invalid, so
+		 * we have to ensure we don't reference it.
+		 */
+
+		/*
+		 * XXX TODO: we /do/ have to lifecycle manage fde events -
+		 * if we have a completed event here but someone has
+		 * prematurely freed the event before the event has
+		 * completed, then we'll have a kqueue event here
+		 * for a udata that no longer exists.
+		 *
+		 * So what we need to actually do here is mark events
+		 * as being dying, and then only free them once we've
+		 * finished this processing loop.
+		 */
 	}
 }

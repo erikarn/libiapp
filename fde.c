@@ -65,10 +65,22 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
 
 	switch (t) {
 		case FDE_T_READ:
-			EV_SET(&f->kev, fd, EVFILT_READ, EV_ENABLE | EV_ONESHOT, 0, 0, f);
+			/*
+			 * NOTE_EOF makes the read note act like select/poll,
+			 * where it becomes read-ready for an EOF condition.
+			 */
+			EV_SET(&f->kev, fd, EVFILT_READ,
+			    EV_ENABLE | EV_ONESHOT,
+#ifdef	NOTE_EOF
+			    NOTE_EOF,
+#else
+			    0,
+#endif
+			    0, f);
 			break;
 		case FDE_T_WRITE:
-			EV_SET(&f->kev, fd, EVFILT_WRITE, EV_ENABLE | EV_ONESHOT, 0, 0, f);
+			EV_SET(&f->kev, fd, EVFILT_WRITE,
+			    EV_ENABLE | EV_ONESHOT, 0, 0, f);
 			break;
 		case FDE_T_CALLBACK:
 			/* Nothing to do here */

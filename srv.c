@@ -58,6 +58,7 @@ conn_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 * we'd just mark this thing as closing and stick it on
 	 * a 'thr' dead list, to be reaped.
 	 */
+	fprintf(stderr, "%s: FD %d: %p: closing\n", __func__, fd, c);
 	fde_delete(c->parent->h, c->ev_read);
 	fde_delete(c->parent->h, c->ev_write);
 	fde_delete(c->parent->h, c->ev_cleanup);	/* XXX not needed? */

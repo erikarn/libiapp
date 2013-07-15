@@ -23,7 +23,8 @@ struct fde;
  * FD event queue.  One per thread.
  */
 struct fde_head {
-	TAILQ_HEAD(, fde) f_head;
+	TAILQ_HEAD(, fde) f_head;	/* list of all active entries */
+	TAILQ_HEAD(, fde) f_cb_head;	/* list of callbacks to perform */
 	int kqfd;
 	struct kevent kev_list[FDE_HEAD_MAXEVENTS];
 };
@@ -39,6 +40,7 @@ typedef enum {
 	FDE_T_NONE,
 	FDE_T_READ,
 	FDE_T_WRITE,
+	FDE_T_CALLBACK,		/* Immediate callback */
 	FDE_T_SIGNAL,		/* XXX not yet implemented */
 	FDE_T_TIMER,		/* XXX not yet implemented */
 	FDE_T_AIO		/* XXX not yet implemented */
@@ -54,6 +56,7 @@ struct fde {
 	int fd;
 	struct kevent kev;
 	TAILQ_ENTRY(fde) node;
+	TAILQ_ENTRY(fde) cb_node;
 	fde_type f_type;
 	fde_callback *cb;
 	int is_active;

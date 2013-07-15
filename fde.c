@@ -21,6 +21,8 @@ fde_ctx_new(void)
 	}
 
 	TAILQ_INIT(&fh->f_head);
+	TAILQ_INIT(&fh->f_cb_head);
+
 	fh->kqfd = kqueue();
 	if (fh->kqfd == -1) {
 		warn("%s: kqueue", __func__);
@@ -67,6 +69,9 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
 			break;
 		case FDE_T_WRITE:
 			EV_SET(&f->kev, fd, EVFILT_WRITE, EV_ENABLE | EV_ONESHOT, 0, 0, f);
+			break;
+		case FDE_T_CALLBACK:
+			/* Nothing to do here */
 			break;
 		default:
 			warn("%s: event type %d not implemented\n",
@@ -139,6 +144,30 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
 	TAILQ_REMOVE(&fh->f_head, f, node);
 }
 
+static void
+fde_cb_add(struct fde_head *fh, struct fde *f)
+{
+
+	if (f->is_active)
+		return;
+
+	f->is_active = 1;
+	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
+	TAILQ_INSERT_TAIL(&fh->f_cb_head, f, cb_node);
+}
+
+static void
+fde_cb_delete(struct fde_head *fh, struct fde *f)
+{
+
+	if (! f->is_active)
+		return;
+
+	f->is_active = 0;
+	TAILQ_REMOVE(&fh->f_head, f, node);
+	TAILQ_REMOVE(&fh->f_cb_head, f, cb_node);
+}
+
 void
 fde_add(struct fde_head *fh, struct fde *f)
 {
@@ -147,6 +176,9 @@ fde_add(struct fde_head *fh, struct fde *f)
 		case FDE_T_READ:
 		case FDE_T_WRITE:
 			fde_rw_add(fh, f);
+			break;
+		case FDE_T_CALLBACK:
+			fde_cb_add(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
@@ -165,6 +197,9 @@ fde_delete(struct fde_head *fh, struct fde *f)
 		case FDE_T_WRITE:
 			fde_rw_delete(fh, f);
 			break;
+		case FDE_T_CALLBACK:
+			fde_cb_delete(fh, f);
+			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
 			    __func__,
@@ -173,8 +208,22 @@ fde_delete(struct fde_head *fh, struct fde *f)
 	}
 }
 
-void
-fde_runloop(struct fde_head *fh, const struct timespec *timeout)
+static void
+fde_cb_runloop(struct fde_head *fh, const struct timespec *timeout)
+{
+
+	struct fde *f, *f_next;
+
+	while ((f = TAILQ_FIRST(&fh->f_cb_head)) != NULL) {
+		f_next = TAILQ_NEXT(f, cb_node);
+		fde_delete(fh, f);
+		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
+		/* f may be free at this point */
+	}
+}
+
+static void
+fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 {
 
 	int ret, i;
@@ -228,3 +277,13 @@ fde_runloop(struct fde_head *fh, const struct timespec *timeout)
 		 */
 	}
 }
+
+void
+fde_runloop(struct fde_head *fh, const struct timespec *timeout)
+{
+
+	fde_cb_runloop(fh, timeout);
+	fde_rw_runloop(fh, timeout);
+}
+
+

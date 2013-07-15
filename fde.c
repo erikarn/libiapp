@@ -252,8 +252,22 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 		/*
 		 * Callback!
 		 *
-		 * Assume the event has already been removed as it's
+		 * Assume the kqueue event has already been removed as it's
 		 * a one-shot event, so we just mark it inactive here.
+		 */
+
+		/*
+		 * If it's been marked as inactive here then someone
+		 * decided _during this IO loop_ that they weren't
+		 * interested in this event any longer.  So, don't call.
+		 * the callback.
+		 */
+		if (f->is_active == 0)
+			continue;
+
+
+		/*
+		 * Mark the event as inactive and call the callback.
 		 */
 		f->is_active = 0;
 		TAILQ_REMOVE(&fh->f_head, f, node);

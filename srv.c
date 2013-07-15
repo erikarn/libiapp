@@ -22,6 +22,7 @@ struct conn {
 	struct thr *parent;
 	TAILQ_ENTRY(conn) node;
 	struct fde *ev_read, *ev_write;
+	struct fde *ev_cleanup;
 };
 
 struct thr {
@@ -32,10 +33,46 @@ struct thr {
 	TAILQ_HEAD(, conn) conn_list;
 };
 
+/*
+ * This is an experiment - do a cleanup as a delayed thing, rather than
+ * inline with the current IO.
+ *
+ * The fde network notifications (and likely the disk notifications too)
+ * doesn't handle being deleted from within a network callback.
+ *
+ * However, scheduling callbacks do handle being deleted from within
+ * a callback.  There's no risk that some pending callback is going
+ * to point to a stale fde struct that has been freed elsewhere.
+ *
+ * It's quite possible that I'll have to add that awareness to it in
+ * a non-dirty fashion.  But for now, we defer this stuff to outside
+ * the IO machinery via a cleanup callback.
+ */
+static void
+conn_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct conn *c = arg;
+
+	/*
+	 * XXX this is just a hack; we can cleanup here, ideally
+	 * we'd just mark this thing as closing and stick it on
+	 * a 'thr' dead list, to be reaped.
+	 */
+	fde_delete(c->parent->h, c->ev_read);
+	fde_delete(c->parent->h, c->ev_write);
+	fde_delete(c->parent->h, c->ev_cleanup);	/* XXX not needed? */
+	close(c->fd);
+	TAILQ_REMOVE(&c->parent->conn_list, c, node);
+	free(c);
+}
+
 static void
 conn_read_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
+	struct conn *c = arg;
 
+	/* Schedule the cleanup event to free things */
+	fde_add(c->parent->h, c->ev_cleanup);
 }
 
 static void
@@ -56,9 +93,14 @@ conn_new(struct thr *r, int fd)
 	}
 	c->fd = fd;
 	c->parent = r;
-	c->ev_read = fde_create(r->h, fd, FDE_T_READ, conn_read_cb, r);
-	c->ev_write = fde_create(r->h, fd, FDE_T_WRITE, conn_write_cb, r);
+	c->ev_read = fde_create(r->h, fd, FDE_T_READ, conn_read_cb, c);
+	c->ev_write = fde_create(r->h, fd, FDE_T_WRITE, conn_write_cb, c);
+	c->ev_cleanup = fde_create(r->h, fd, FDE_T_CALLBACK,
+	    conn_cleanup_cb, c);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
+
+	/* Start reading */
+	fde_add(r->h, c->ev_read);
 
 	return (c);
 }

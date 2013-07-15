@@ -96,8 +96,8 @@ fde_free(struct fde_head *fh, struct fde *f)
 	free(f);
 }
 
-void
-fde_add(struct fde_head *fh, struct fde *f)
+static void
+fde_rw_add(struct fde_head *fh, struct fde *f)
 {
 
 	if (f->is_active)
@@ -119,8 +119,8 @@ fde_add(struct fde_head *fh, struct fde *f)
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
 }
 
-void
-fde_delete(struct fde_head *fh, struct fde *f)
+static void
+fde_rw_delete(struct fde_head *fh, struct fde *f)
 {
 
 	if (! f->is_active)
@@ -137,6 +137,40 @@ fde_delete(struct fde_head *fh, struct fde *f)
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
+}
+
+void
+fde_add(struct fde_head *fh, struct fde *f)
+{
+
+	switch (f->f_type) {
+		case FDE_T_READ:
+		case FDE_T_WRITE:
+			fde_rw_add(fh, f);
+			break;
+		default:
+			fprintf(stderr, "%s: %p: unknown type (%d)\n",
+			    __func__,
+			    f,
+			    f->f_type);
+	}
+}
+
+void
+fde_delete(struct fde_head *fh, struct fde *f)
+{
+
+	switch (f->f_type) {
+		case FDE_T_READ:
+		case FDE_T_WRITE:
+			fde_rw_delete(fh, f);
+			break;
+		default:
+			fprintf(stderr, "%s: %p: unknown type (%d)\n",
+			    __func__,
+			    f,
+			    f->f_type);
+	}
 }
 
 void

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <err.h>
+#include <errno.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
@@ -259,6 +261,31 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 			    __func__,
 			    fh->kev_list[i].ident);
 			continue;
+		}
+
+		if (fh->kev_list[i].flags & EV_ERROR) {
+			switch (fh->kev_list[i].data) {
+			case ENOENT:
+			case EINVAL:
+			case EBADF:
+				continue;
+			case EPERM:
+			case EPIPE:
+				/*
+				 * We should notify a registered read callback for
+				 * this FD that we received a socket error.
+				 * This, fall through
+				 */
+				break;
+			default:
+				errno = fh->kev_list[i].data;
+				fprintf(stderr, "%s: kevent index %d returned errno %d (%s)\n",
+				    __func__,
+				    i,
+				    errno,
+				    strerror(errno));
+				continue;
+			}
 		}
 
 		/*

@@ -8,10 +8,13 @@ typedef enum {
 	FDE_COMM_CB_COMPLETED,
 	FDE_COMM_CB_CLOSING,
 	FDE_COMM_CB_ERROR,
+	FDE_COMM_CB_EOF,
 	FDE_COMM_CB_ABORTED
 } fde_comm_cb_status;
 
 typedef void	comm_accept_cb(int fd, struct fde_comm *fc, void *arg,
+		    fde_comm_cb_status status, int retval);
+typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int retval);
 typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
 
@@ -22,6 +25,9 @@ struct fde_comm {
 	struct fde *ev_read;
 	struct fde *ev_write;
 	struct fde *ev_cleanup;
+
+	/* XXX TODO: ev_accept */
+	/* XXX TODO: ev_connect */
 
 	/* General state */
 	int is_closing;		/* Are we getting ready to close? */
@@ -34,6 +40,8 @@ struct fde_comm {
 		int is_active;
 		char *buf;	/* buffer to read into */
 		int len;	/* buffer length */
+		comm_read_cb *cb;
+		void *cbdata;
 	} r;
 
 	/*
@@ -80,7 +88,8 @@ extern	void comm_close(struct fde_comm *fc);
  *
  * The buffer must stay valid for the lifetime of the read.
  */
-extern	int comm_read(struct fde_comm *fc, char *buf, int len);
+extern	int comm_read(struct fde_comm *fc, char *buf, int len,
+	    comm_read_cb *cb, void *cbdata);
 
 /*
  * Schedule some data to be written.

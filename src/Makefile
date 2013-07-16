@@ -1,5 +1,5 @@
 .include <bsd.own.mk>
 
-SUBDIR=srv
+SUBDIR=srv clt
 
 .include <bsd.subdir.mk>

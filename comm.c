@@ -9,6 +9,7 @@
 #include <sys/queue.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <sys/socket.h>
 
 #include <netinet/in.h>
 
@@ -191,6 +192,63 @@ comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 }
 
 static void
+comm_cb_accept(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	int ret;
+	struct fde_comm *c = arg;
+	//fde_comm_cb_status s;
+	struct sockaddr_storage sin;
+	socklen_t slen;
+
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		c->a.is_active = 0;
+		c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_CLOSING, 0, NULL, 0, 0);
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
+	if (c->a.is_active == 0) {
+		fprintf(stderr, "%s: %p: FD %d: comm_cb_accept but not active?\n",
+		    __func__,
+		    c,
+		    fd);
+		return;
+	}
+
+	slen = sizeof(sin);
+
+	ret = accept(fd, (struct sockaddr *) &sin, &slen);
+	if (ret < 0) {
+		if (errno == EWOULDBLOCK || errno == EAGAIN) {
+			fde_add(c->fh_parent, c->ev_accept);
+			return;
+		}
+
+		/*
+		 * Re-add for another event; the caller may choose to
+		 * delete it and schedule things to close.
+		 */
+		fde_add(c->fh_parent, c->ev_accept);
+
+		/* Non-transient error; inform the upper layer */
+		c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_ERROR, -1, NULL, 0,
+		    errno);
+
+		return;
+	}
+
+	/*
+	 * schedule for another event before we call the callback.
+	 */
+	fde_add(c->fh_parent, c->ev_accept);
+	c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_COMPLETED, ret,
+	    (struct sockaddr *) &sin, slen, 0);
+}
+
+static void
 comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
 	struct fde_comm *c = arg;
@@ -218,7 +276,8 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->fh_parent, c->ev_read);
 	fde_free(c->fh_parent, c->ev_write);
 	fde_free(c->fh_parent, c->ev_accept);
-	fde_free(c->fh_parent, c->ev_connect);
+	if (c->ev_connect)
+		fde_free(c->fh_parent, c->ev_connect);
 	fde_free(c->fh_parent, c->ev_cleanup);
 
 	/*
@@ -258,6 +317,10 @@ comm_create(int fd, struct fde_head *fh)
 	fc->ev_cleanup = fde_create(fh, -1, FDE_T_CALLBACK,
 	    comm_cb_cleanup, fc);
 	if (fc->ev_cleanup == NULL)
+		goto cleanup;
+
+	fc->ev_accept = fde_create(fh, fd, FDE_T_READ, comm_cb_accept, fc);
+	if (fc->ev_accept == NULL)
 		goto cleanup;
 
 	return (fc);
@@ -390,6 +453,30 @@ comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
 	 */
 	fde_add(fc->fh_parent, fc->ev_write);
 	fc->w.is_active = 1;
+
+	return (0);
+}
+
+int
+comm_listen(struct fde_comm *fc, comm_accept_cb *cb, void *cbdata)
+{
+
+	/* XXX should I be more vocal if this occurs */
+	if (fc->a.is_active == 1)
+		return (-1);
+
+	/*
+	 * XXX This is incompatible with doing read/write, I should
+	 * enforce this.
+	 */
+	fc->a.cb = cb;
+	fc->a.cbdata = cbdata;
+
+	/*
+	 * Begin doing read IO.
+	 */
+	fde_add(fc->fh_parent, fc->ev_accept);
+	fc->a.is_active = 1;
 
 	return (0);
 }

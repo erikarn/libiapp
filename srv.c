@@ -33,7 +33,7 @@ struct thr {
 	pthread_t thr_id;
 	int thr_sockfd;
 	struct fde_head *h;
-	struct fde *ev_listen;
+	struct fde_comm *comm_listen;
 	TAILQ_HEAD(, conn) conn_list;
 };
 
@@ -89,45 +89,19 @@ conn_new(struct thr *r, int fd)
 }
 
 static void
-thrsrv_listen_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+conn_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
+    int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
 {
 	struct thr *r = arg;
-	int new_fd;
-	struct sockaddr_storage s;
-	socklen_t slen;
 	struct conn *c;
 
-	bzero(&s, sizeof(s));
-	slen = sizeof(s);
+	fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, newfd);
 
-	/*
-	 * XXX
-	 *
-	 * It seems that all the threads wake up when a new connection
-	 * comes in.  Those that didn't win will simply get EAGAIN.
-	 */
-
-	while (1) {
-		new_fd = accept(r->thr_sockfd, (struct sockaddr *) &s, &slen);
-		if (new_fd < 0) {
-#if 0
-			fprintf(stderr, "%s: %p: err; errno=%d (%s)\n",
-			    __func__,
-			    r,
-			    errno,
-			    strerror(errno));
-#endif
-			break;
-		}
-		fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, new_fd);
-		c = conn_new(r, new_fd);
-		if (c == NULL) {
-			close(new_fd);
-		}
+	c = conn_new(r, newfd);
+	if (c == NULL) {
+		close(newfd);
+		return;
 	}
-
-	/* Re-add the event, as it's a oneshot */
-	fde_add(r->h, r->ev_listen);
 }
 
 void *
@@ -138,10 +112,10 @@ thrsrv_new(void *arg)
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
-	/* register a local event for the listen FD */
-	r->ev_listen = fde_create(r->h, r->thr_sockfd, FDE_T_READ,
-	    thrsrv_listen_cb, r);
-	fde_add(r->h, r->ev_listen);
+	/* Create a listen comm object */
+	r->comm_listen = comm_create(r->thr_sockfd, r->h);
+	comm_mark_nonclose(r->comm_listen);
+	(void) comm_listen(r->comm_listen, conn_acceptfd, r);
 
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {

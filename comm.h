@@ -13,7 +13,8 @@ typedef enum {
 } fde_comm_cb_status;
 
 typedef void	comm_accept_cb(int fd, struct fde_comm *fc, void *arg,
-		    fde_comm_cb_status status, int retval);
+		    fde_comm_cb_status status, int newfd,
+		    struct sockaddr *saddr, socklen_t slen, int xerrno);
 typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int retval);
 typedef void	comm_write_cb(int fd, struct fde_comm *fc, void *arg,
@@ -72,6 +73,8 @@ struct fde_comm {
 	 */
 	struct {
 		int is_active;
+		comm_accept_cb *cb;
+		void *cbdata;
 	} a;
 
 	/*
@@ -117,5 +120,13 @@ extern	int comm_read(struct fde_comm *fc, char *buf, int len,
  */
 extern	int comm_write(struct fde_comm *fc, char *buf, int len,
 	    comm_write_cb *cb, void *cbdata);
+
+/*
+ * Start accept()ing on the given socket.
+ *
+ * This assumes that the socket is setup and listening.
+ */
+extern	int comm_listen(struct fde_comm *fc, comm_accept_cb *cb,
+	    void *cbdata);
 
 #endif	/* __COMM_H__ */

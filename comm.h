@@ -106,6 +106,12 @@ extern	void comm_mark_nonclose(struct fde_comm *fc);
 extern	void comm_close(struct fde_comm *fc);
 
 /*
+ * Set or clear the non-block flag on an open comm object.
+ */
+extern	int comm_fd_set_nonblocking(int fd, int enable);
+extern	int comm_set_nonblocking(struct fde_comm *c, int enable);
+
+/*
  * Schedule some data to be read.
  *
  * The buffer must stay valid for the lifetime of the read.

@@ -59,6 +59,27 @@ comm_start_cleanup(struct fde_comm *fc)
 	fde_add(fc->fh_parent, fc->ev_cleanup);
 }
 
+int
+comm_fd_set_nonblocking(int fd, int enable)
+{
+	int a;
+
+	a = fcntl(fd, F_GETFL, 0);
+	/* XXX check */
+	if (enable)
+		a |= O_NONBLOCK;
+	else
+		a &= ~O_NONBLOCK;
+	return (fcntl(fd, F_SETFL, a));
+}
+
+int
+comm_set_nonblocking(struct fde_comm *c, int enable)
+{
+
+	return (comm_fd_set_nonblocking(c->fd, enable));
+}
+
 /*
  * Handle a read IO event.  This is just for socket reads; not
  * for accept.
@@ -239,6 +260,11 @@ comm_cb_accept(int fd, struct fde *f, void *arg, fde_cb_status status)
 
 		return;
 	}
+
+	/*
+	 * Default - set non-blocking.
+	 */
+	(void) comm_fd_set_nonblocking(ret, 1);
 
 	/*
 	 * schedule for another event before we call the callback.

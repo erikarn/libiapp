@@ -150,14 +150,16 @@ thrsrv_listenfd(int port)
 		return (-1);
 	}
 
-	/* make non-blocking */
-	a = fcntl(fd, F_GETFL, 0);
-	/* XXX check */
-	fcntl(fd, F_SETFL, a | O_NONBLOCK);
+	/* Make non-blocking */
+	(void) comm_fd_set_nonblocking(fd, 1);
 
 	/* make reuse */
 	a = 1;
 	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &a, sizeof(&a));
+
+	/* and reuse port */
+	a = 1;
+	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &a, sizeof(&a));
 
 	if (bind(fd, (struct sockaddr *) &sin, sizeof(sin)) < 0) {
 		fprintf(stderr, "%s: bind() faioed; errno=%d (%s)\n",

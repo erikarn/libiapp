@@ -57,7 +57,7 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 		    c);
 	}
 
-	fde_delete(c->parent->h, c->ev_cleanup);
+	fde_free(c->parent->h, c->ev_cleanup);
 	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c->r.buf);
 	free(c);

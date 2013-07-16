@@ -34,7 +34,8 @@ comm_is_close_ready(struct fde_comm *fc)
 	 * XXX Later, we will need to also disable pending
 	 * accept/connect machinery before doing this.
 	 */
-	return (fc->r.is_active == 0 && fc->w.is_active == 0);
+	return (fc->r.is_active == 0 && fc->w.is_active == 0 &&
+	    fc->a.is_active == 0 && fc->co.is_active == 0);
 }
 
 static void
@@ -57,8 +58,6 @@ comm_start_cleanup(struct fde_comm *fc)
 	fde_add(fc->fh_parent, fc->ev_cleanup);
 }
 
-
-
 /*
  * Handle a read IO event.  This is just for socket reads; not
  * for accept.
@@ -73,11 +72,19 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	/* Closing? Don't do the IO; start the closing machinery */
 	if (c->is_closing) {
 		c->r.is_active = 0;
-		c->r.cb(fd, c, c->r.cbdata, FDE_COMM_CB_CLOSING, ret);
+		c->r.cb(fd, c, c->r.cbdata, FDE_COMM_CB_CLOSING, 0);
 		if (comm_is_close_ready(c)) {
 			comm_start_cleanup(c);
 			return;
 		}
+	}
+
+	if (c->r.is_active == 0) {
+		fprintf(stderr, "%s: %p: FD %d: comm_cb_read but not active?\n",
+		    __func__,
+		    c,
+		    fd);
+		return;
 	}
 
 	/* XXX validate that there's actually a buffer, len and callback */
@@ -111,8 +118,76 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 static void
 comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
+	int ret;
+	struct fde_comm *c = arg;
+	fde_comm_cb_status s;
 
-	/* XXX TODO */
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		c->w.is_active = 0;
+		c->w.cb(fd, c, c->w.cbdata, FDE_COMM_CB_CLOSING, c->w.offset);
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
+	if (c->w.is_active == 0) {
+		fprintf(stderr, "%s: %p: FD %d: comm_cb_write but not active?\n",
+		    __func__,
+		    c,
+		    fd);
+		return;
+	}
+
+	/*
+	 * Write out from the current buffer position.
+	 */
+	ret = write(fd, c->w.buf + c->w.offset, c->w.len - c->w.offset);
+	if (ret < 0) {
+		/*
+		 * XXX should only fail this a few times before
+		 * really failing.
+		 */
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			fde_add(c->fh_parent, c->ev_write);
+			return;
+		}
+	}
+
+	/*
+	 * Wrote more than 0 bytes? Bump the offset.
+	 */
+	if (ret > 0) {
+		c->w.offset += ret;
+	}
+
+	/*
+	 * If we have more left to write and we didn't error
+	 * out, go for another pass.
+	 */
+	if (ret >= 0 && c->w.offset < c->w.len) {
+		fde_add(c->fh_parent, c->ev_write);
+		return;
+	}
+
+	/*
+	 * If we wrote 0 bytes, we aren't going to make any further
+	 * progress.  Signify EOF; the caller will note that it was
+	 * a partial write.
+	 */
+
+	/* Time to notify! */
+	c->w.is_active = 0;
+	if (ret < 0) {
+		s = FDE_COMM_CB_ERROR;
+	} else if (ret == 0) {
+		s = FDE_COMM_CB_EOF;
+	} else {
+		s = FDE_COMM_CB_COMPLETED;
+	}
+
+	c->w.cb(fd, c, c->w.cbdata, s, c->w.offset);
 }
 
 static void
@@ -142,6 +217,8 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 */
 	fde_free(c->fh_parent, c->ev_read);
 	fde_free(c->fh_parent, c->ev_write);
+	fde_free(c->fh_parent, c->ev_accept);
+	fde_free(c->fh_parent, c->ev_connect);
 	fde_free(c->fh_parent, c->ev_cleanup);
 
 	/*
@@ -192,6 +269,10 @@ cleanup:
 		fde_free(fh, fc->ev_write);
 	if (fc->ev_cleanup)
 		fde_free(fh, fc->ev_cleanup);
+	if (fc->ev_accept)
+		fde_free(fh, fc->ev_accept);
+	if (fc->ev_connect)
+		fde_free(fh, fc->ev_connect);
 	free(fc);
 	return (NULL);
 }
@@ -281,11 +362,34 @@ comm_read(struct fde_comm *fc, char *buf, int len, comm_read_cb *cb,
 	 */
 	fde_add(fc->fh_parent, fc->ev_read);
 	fc->r.is_active = 1;
+
+	return (1);
 }
 
 int
-comm_write(struct fde_comm *fc, char *buf, int len)
+comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
+    void *cbdata)
 {
 
-	return (-1);
+	/* XXX should I be more vocal if this occurs */
+	if (fc->w.is_active == 1)
+		return (-1);
+
+	/*
+	 * XXX This is incompatible with doing accept/connect,
+	 * so ensure they're not active.
+	 */
+	fc->w.cb = cb;
+	fc->w.cbdata = cbdata;
+	fc->w.buf = buf;
+	fc->w.len = len;
+	fc->w.offset = 0;
+
+	/*
+	 * Begin doing write IO.
+	 */
+	fde_add(fc->fh_parent, fc->ev_write);
+	fc->w.is_active = 1;
+
+	return (0);
 }

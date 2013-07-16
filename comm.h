@@ -16,18 +16,21 @@ typedef void	comm_accept_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int retval);
 typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int retval);
+typedef void	comm_write_cb(int fd, struct fde_comm *fc, void *arg,
+		    fde_comm_cb_status status, int nwritten);
 typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
 
 struct fde_comm {
 	int fd;
 	int do_close;		/* Whether to close the FD */
 	struct fde_head *fh_parent;
+
+	/* Events */
 	struct fde *ev_read;
 	struct fde *ev_write;
+	struct fde *ev_accept;
+	struct fde *ev_connect;
 	struct fde *ev_cleanup;
-
-	/* XXX TODO: ev_accept */
-	/* XXX TODO: ev_connect */
 
 	/* General state */
 	int is_closing;		/* Are we getting ready to close? */
@@ -52,6 +55,8 @@ struct fde_comm {
 		char *buf;
 		int len;
 		int offset;
+		comm_write_cb *cb;
+		void *cbdata;
 	} w;
 
 	/*
@@ -61,6 +66,20 @@ struct fde_comm {
 		comm_close_cb *cb;
 		void *cbdata;
 	} c;
+
+	/*
+	 * Accept state
+	 */
+	struct {
+		int is_active;
+	} a;
+
+	/*
+	 * Connect state
+	 */
+	struct {
+		int is_active;
+	} co;
 };
 
 /*
@@ -96,6 +115,7 @@ extern	int comm_read(struct fde_comm *fc, char *buf, int len,
  *
  * The buffer must stay valid for the lifetime of the write.
  */
-extern	int comm_write(struct fde_comm *fc, char *buf, int len);
+extern	int comm_write(struct fde_comm *fc, char *buf, int len,
+	    comm_write_cb *cb, void *cbdata);
 
 #endif	/* __COMM_H__ */

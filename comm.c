@@ -16,6 +16,8 @@
 #include "fde.h"
 #include "comm.h"
 
+#define	XMIN(x,y)	((x) < (y) ? (x) : (y))
+
 /*
  * This implements the 'socket' logic for sockets, pipes and such.
  * It isn't at all useful for disk IO.
@@ -302,14 +304,93 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->fh_parent, c->ev_read);
 	fde_free(c->fh_parent, c->ev_write);
 	fde_free(c->fh_parent, c->ev_accept);
-	if (c->ev_connect)
-		fde_free(c->fh_parent, c->ev_connect);
+	fde_free(c->fh_parent, c->ev_connect);
+	fde_free(c->fh_parent, c->ev_connect_start);
 	fde_free(c->fh_parent, c->ev_cleanup);
 
 	/*
 	 * Finally, free the fde_comm state.
 	 */
 	free(c);
+}
+
+/*
+ * Check the progress of the connect().
+ */
+static void
+comm_cb_connect(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	int x, err;
+	struct fde_comm *c = arg;
+	socklen_t slen;
+
+	slen = sizeof(err);
+	x = getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &slen);
+	if (x == 0)
+		errno = err;
+
+	/* Now, check */
+	if (x == 0 && errno == EINPROGRESS) {
+		/* Still in progress */
+		fde_add(c->fh_parent, c->ev_connect);
+	} else if (x == 0 && errno == 0) {
+		/* Completed! */
+		c->co.is_active = 0;
+		c->co.cb(c->fd, c, c->a.cbdata, FDE_COMM_CB_COMPLETED, 0);
+	} else {
+		/* Failure? */
+		c->co.is_active = 0;
+		c->co.cb(c->fd, c, c->a.cbdata, FDE_COMM_CB_ERROR, errno);
+	}
+}
+
+/*
+ * Begin the first part of connect() - issue the connect()
+ * and see if it succeeds.
+ */
+static void
+comm_cb_connect_start(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	int ret;
+	struct fde_comm *c = arg;
+	fde_comm_cb_status s;
+
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		c->co.is_active = 0;
+		c->co.cb(fd, c, c->co.cbdata, FDE_COMM_CB_CLOSING, 0);
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
+	if (c->co.is_active == 0) {
+		fprintf(stderr,
+		    "%s: %p: FD %d: comm_cb_connect_start but not active?\n",
+		    __func__,
+		    c,
+		    fd);
+		return;
+	}
+
+	/* Start the first connect() attempt */
+	ret = connect(c->fd, (struct sockaddr *) &c->co.sin, c->co.slen);
+
+	/* In progress? Register for write-readiness */
+	if (ret < 0 && errno == EINPROGRESS) {
+		fde_add(c->fh_parent, c->ev_connect);
+		return;
+	}
+
+	/* Well, it completed; let's handle the error case */
+	c->co.is_active = 0;
+	if (ret < 0) {
+		s = FDE_COMM_CB_ERROR;
+	} else {
+		s = FDE_COMM_CB_COMPLETED;
+	}
+	c->co.cb(fd, c, c->a.cbdata, s, ret);
 }
 
 /*
@@ -349,6 +430,15 @@ comm_create(int fd, struct fde_head *fh)
 	if (fc->ev_accept == NULL)
 		goto cleanup;
 
+	fc->ev_connect = fde_create(fh, fd, FDE_T_WRITE, comm_cb_connect, fc);
+	if (fc->ev_connect == NULL)
+		goto cleanup;
+
+	fc->ev_connect_start = fde_create(fh, -1, FDE_T_CALLBACK,
+	     comm_cb_connect_start, fc);
+	if (fc->ev_connect_start == NULL)
+		goto cleanup;
+
 	return (fc);
 
 cleanup:
@@ -362,6 +452,8 @@ cleanup:
 		fde_free(fh, fc->ev_accept);
 	if (fc->ev_connect)
 		fde_free(fh, fc->ev_connect);
+	if (fc->ev_connect_start)
+		fde_free(fh, fc->ev_connect_start);
 	free(fc);
 	return (NULL);
 }
@@ -503,6 +595,37 @@ comm_listen(struct fde_comm *fc, comm_accept_cb *cb, void *cbdata)
 	 */
 	fde_add(fc->fh_parent, fc->ev_accept);
 	fc->a.is_active = 1;
+
+	return (0);
+}
+
+int
+comm_connect(struct fde_comm *fc, struct sockaddr *sin, socklen_t slen,
+    comm_connect_cb *cb, void *cbdata)
+{
+
+	if (fc->co.is_active == 1)
+		return (-1);
+	if (slen > sizeof(fc->co.sin))
+		return (-1);
+
+	fc->co.cb = cb;
+	fc->co.cbdata = cbdata;
+	memcpy(&fc->co.sin, sin, XMIN(slen, sizeof(fc->co.sin)));
+	fc->co.slen = slen;
+
+	/*
+	 * Now, we can do the initial connect() here.
+	 *
+	 * Just keep in mind that once the connect() is done,
+	 * subsequent attempts should use getsockopt() to see
+	 * if it's connected.
+	 *
+	 * What we want to avoid doing is calling the connect
+	 * completion handler from here.
+	 */
+	fc->co.is_active = 1;
+	fde_add(fc->fh_parent, fc->ev_connect_start);
 
 	return (0);
 }

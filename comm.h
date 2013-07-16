@@ -20,6 +20,8 @@ typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 typedef void	comm_write_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int nwritten);
 typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
+typedef void	comm_connect_cb(int fd, struct fde_comm *fc, void *arg,
+		    fde_comm_cb_status status, int retval);
 
 struct fde_comm {
 	int fd;
@@ -31,6 +33,7 @@ struct fde_comm {
 	struct fde *ev_write;
 	struct fde *ev_accept;
 	struct fde *ev_connect;
+	struct fde *ev_connect_start;
 	struct fde *ev_cleanup;
 
 	/* General state */
@@ -82,6 +85,10 @@ struct fde_comm {
 	 */
 	struct {
 		int is_active;
+		comm_connect_cb *cb;
+		void *cbdata;
+		struct sockaddr_storage sin;
+		socklen_t slen;
 	} co;
 };
 
@@ -134,5 +141,11 @@ extern	int comm_write(struct fde_comm *fc, char *buf, int len,
  */
 extern	int comm_listen(struct fde_comm *fc, comm_accept_cb *cb,
 	    void *cbdata);
+
+/*
+ * Start a connect() to the remote address.
+ */
+extern	int comm_connect(struct fde_comm *fc, struct sockaddr *sin,
+	    socklen_t slen, comm_connect_cb *cb, void *cbdata);
 
 #endif	/* __COMM_H__ */

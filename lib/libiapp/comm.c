@@ -287,7 +287,7 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 * Call the close callback if one was registered.
 	 */
 	if (c->c.cb != NULL)
-		c->c.cb(fd, c, c->c.cbdata);
+		c->c.cb(c->fd, c, c->c.cbdata);
 
 	/*
 	 * Close the file descriptor if we're allowed to.
@@ -425,7 +425,7 @@ comm_cb_connect_start(int fd_unused, struct fde *f, void *arg,
  * This assumes the file descriptor is already non-blocking and such.
  */
 struct fde_comm *
-comm_create(int fd, struct fde_head *fh)
+comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 {
 	struct fde_comm *fc;
 
@@ -438,6 +438,9 @@ comm_create(int fd, struct fde_head *fh)
 	fc->fd = fd;
 	fc->do_close = 1;
 	fc->fh_parent = fh;
+
+	fc->c.cb = cb;
+	fc->c.cbdata = cbdata;
 
 	fc->ev_read = fde_create(fh, fd, FDE_T_READ, comm_cb_read, fc);
 	if (fc->ev_read == NULL)

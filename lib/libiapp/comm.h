@@ -95,7 +95,8 @@ struct fde_comm {
 /*
  * Create a comm struct for an already-created FD.
  */
-extern	struct fde_comm * comm_create(int fd, struct fde_head *fh);
+extern	struct fde_comm * comm_create(int fd, struct fde_head *fh,
+	    comm_close_cb *cb, void *cbdata);
 
 /*
  * Mark the comm struct as non-closing

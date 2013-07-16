@@ -4,5 +4,6 @@ CFLAGS+= -I${.CURDIR}/../../lib/libiapp/
 LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/
 LDADD=-lpthread -liapp
 NO_MAN=1
+DEBUG_FLAGS=-g
 
 .include <bsd.prog.mk>

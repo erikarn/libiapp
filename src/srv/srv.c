@@ -22,7 +22,11 @@ struct conn {
 	int fd;
 	struct thr *parent;
 	TAILQ_ENTRY(conn) node;
+	int is_closing;
+	int close_called;
+	int is_cleanup;
 	struct fde_comm *comm;
+	struct fde *ev_cleanup;
 	struct {
 		char *buf;
 		int size;
@@ -38,16 +42,41 @@ struct thr {
 };
 
 static void
+client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+
+	struct conn *c = arg;
+
+	/* Time to tidy up! */
+	fprintf(stderr, "%s: %p: freeing\n", __func__, c);
+
+	/* This MUST be free at this point */
+	if (c->comm != NULL) {
+		fprintf(stderr, "%s: %p: comm not null? Huh?\n",
+		    __func__,
+		    c);
+	}
+
+	fde_delete(c->parent->h, c->ev_cleanup);
+	TAILQ_REMOVE(&c->parent->conn_list, c, node);
+	free(c->r.buf);
+	free(c);
+}
+
+static void
 client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
 {
 	struct conn *c = arg;
 
-	fprintf(stderr, "%s: FD %d: %p: close called\n",
-	    __func__,
-	    fd,
-	    c);
+	fprintf(stderr, "%s: FD %d: %p: close called\n", __func__, fd, c);
 	/* NULL this - it'll be closed for us when this routine completes */
 	c->comm = NULL;
+
+	/* Schedule the actual cleanup */
+	if (c->is_cleanup == 0) {
+		fde_add(c->parent->h, c->ev_cleanup);
+		c->is_cleanup = 1;
+	}
 }
 
 static void
@@ -56,17 +85,32 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 {
 	struct conn *c = arg;
 
+#if 0
 	fprintf(stderr, "%s: FD %d: %p: s=%d, ret=%d\n",
 	    __func__,
 	    fd,
 	    c,
 	    s,
 	    retval);
+#endif
+
+	/* Error or EOF? Begin the close process */
+	if (s != FDE_COMM_CB_COMPLETED) {
+		c->is_closing = 1;
+	}
 
 	/*
-	 * start the close process
+	 * If we're closing, do a comm_close() and then wait until we
+	 * get notification for that.
 	 */
-	comm_close(fc);
+	if (c->is_closing && (c->close_called == 0)) {
+		c->close_called = 1;
+		comm_close(fc);
+		return;
+	}
+
+	/* register for another read */
+	(void) comm_read(c->comm, c->r.buf, c->r.size, client_read_cb, c);
 }
 
 struct conn *
@@ -91,6 +135,8 @@ conn_new(struct thr *r, int fd)
 	c->fd = fd;
 	c->parent = r;
 	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
+	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK,
+	    client_ev_cleanup_cb, c);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
 	/*

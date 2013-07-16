@@ -1,5 +1,5 @@
 .include <bsd.own.mk>
 
-SUBDIR=lib src
+SUBDIR=srv
 
 .include <bsd.subdir.mk>

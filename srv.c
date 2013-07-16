@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 
 #include "fde.h"
+#include "comm.h"
 
 struct thr;
 struct conn;
@@ -21,8 +22,11 @@ struct conn {
 	int fd;
 	struct thr *parent;
 	TAILQ_ENTRY(conn) node;
-	struct fde *ev_read, *ev_write;
-	struct fde *ev_cleanup;
+	struct fde_comm *comm;
+	struct {
+		char *buf;
+		int size;
+	} r;
 };
 
 struct thr {
@@ -33,53 +37,23 @@ struct thr {
 	TAILQ_HEAD(, conn) conn_list;
 };
 
-/*
- * This is an experiment - do a cleanup as a delayed thing, rather than
- * inline with the current IO.
- *
- * The fde network notifications (and likely the disk notifications too)
- * doesn't handle being deleted from within a network callback.
- *
- * However, scheduling callbacks do handle being deleted from within
- * a callback.  There's no risk that some pending callback is going
- * to point to a stale fde struct that has been freed elsewhere.
- *
- * It's quite possible that I'll have to add that awareness to it in
- * a non-dirty fashion.  But for now, we defer this stuff to outside
- * the IO machinery via a cleanup callback.
- */
 static void
-conn_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
+    int retval)
 {
 	struct conn *c = arg;
+
+	fprintf(stderr, "%s: FD %d: %p: s=%d, ret=%d\n",
+	    __func__,
+	    fd,
+	    c,
+	    s,
+	    retval);
 
 	/*
-	 * XXX this is just a hack; we can cleanup here, ideally
-	 * we'd just mark this thing as closing and stick it on
-	 * a 'thr' dead list, to be reaped.
+	 * start the close process
 	 */
-	fprintf(stderr, "%s: FD %d: %p: closing\n", __func__, fd, c);
-	fde_delete(c->parent->h, c->ev_read);
-	fde_delete(c->parent->h, c->ev_write);
-	fde_delete(c->parent->h, c->ev_cleanup);	/* XXX not needed? */
-	close(c->fd);
-	TAILQ_REMOVE(&c->parent->conn_list, c, node);
-	free(c);
-}
-
-static void
-conn_read_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
-{
-	struct conn *c = arg;
-
-	/* Schedule the cleanup event to free things */
-	fde_add(c->parent->h, c->ev_cleanup);
-}
-
-static void
-conn_write_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
-{
-
+	comm_close(fc);
 }
 
 struct conn *
@@ -92,16 +66,24 @@ conn_new(struct thr *r, int fd)
 		warn("%s: calloc", __func__);
 		return (NULL);
 	}
+
+	c->r.size = 8192;
+	c->r.buf = malloc(c->r.size);
+	if (c->r.buf == NULL) {
+		warn("%s: malloc", __func__);
+		free(c);
+		return (NULL);
+	}
+
 	c->fd = fd;
 	c->parent = r;
-	c->ev_read = fde_create(r->h, fd, FDE_T_READ, conn_read_cb, c);
-	c->ev_write = fde_create(r->h, fd, FDE_T_WRITE, conn_write_cb, c);
-	c->ev_cleanup = fde_create(r->h, fd, FDE_T_CALLBACK,
-	    conn_cleanup_cb, c);
+	c->comm = comm_create(fd, r->h);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
-	/* Start reading */
-	fde_add(r->h, c->ev_read);
+	/*
+	 * Start reading!
+	 */
+	(void) comm_read(c->comm, c->r.buf, c->r.size, client_read_cb, c);
 
 	return (c);
 }

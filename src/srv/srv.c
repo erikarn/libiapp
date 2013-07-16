@@ -38,6 +38,19 @@ struct thr {
 };
 
 static void
+client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
+{
+	struct conn *c = arg;
+
+	fprintf(stderr, "%s: FD %d: %p: close called\n",
+	    __func__,
+	    fd,
+	    c);
+	/* NULL this - it'll be closed for us when this routine completes */
+	c->comm = NULL;
+}
+
+static void
 client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
     int retval)
 {
@@ -77,7 +90,7 @@ conn_new(struct thr *r, int fd)
 
 	c->fd = fd;
 	c->parent = r;
-	c->comm = comm_create(fd, r->h);
+	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
 	/*
@@ -113,7 +126,7 @@ thrsrv_new(void *arg)
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
 	/* Create a listen comm object */
-	r->comm_listen = comm_create(r->thr_sockfd, r->h);
+	r->comm_listen = comm_create(r->thr_sockfd, r->h, NULL, NULL);
 	comm_mark_nonclose(r->comm_listen);
 	(void) comm_listen(r->comm_listen, conn_acceptfd, r);
 

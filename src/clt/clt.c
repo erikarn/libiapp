@@ -119,7 +119,7 @@ conn_new(struct clt_app *r)
 		return (NULL);
 	}
 	c->parent = r;
-	c->comm = comm_create(c->fd, r->h);
+	c->comm = comm_create(c->fd, r->h, NULL, NULL);
 	comm_set_nonblocking(c->comm, 1);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 

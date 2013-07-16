@@ -134,7 +134,6 @@ void *
 thrsrv_new(void *arg)
 {
 	struct thr *r = arg;
-	int ret;
 	struct timespec tv;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);

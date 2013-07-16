@@ -324,6 +324,10 @@ comm_cb_connect(int fd, struct fde *f, void *arg, fde_cb_status status)
 	struct fde_comm *c = arg;
 	socklen_t slen;
 
+#if 0
+	fprintf(stderr, "%s: %p: FD %d: called\n", __func__, c, c->fd);
+#endif
+
 	slen = sizeof(err);
 	x = getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &slen);
 	if (x == 0)
@@ -336,11 +340,11 @@ comm_cb_connect(int fd, struct fde *f, void *arg, fde_cb_status status)
 	} else if (x == 0 && errno == 0) {
 		/* Completed! */
 		c->co.is_active = 0;
-		c->co.cb(c->fd, c, c->a.cbdata, FDE_COMM_CB_COMPLETED, 0);
+		c->co.cb(c->fd, c, c->co.cbdata, FDE_COMM_CB_COMPLETED, 0);
 	} else {
 		/* Failure? */
 		c->co.is_active = 0;
-		c->co.cb(c->fd, c, c->a.cbdata, FDE_COMM_CB_ERROR, errno);
+		c->co.cb(c->fd, c, c->co.cbdata, FDE_COMM_CB_ERROR, errno);
 	}
 }
 
@@ -349,16 +353,26 @@ comm_cb_connect(int fd, struct fde *f, void *arg, fde_cb_status status)
  * and see if it succeeds.
  */
 static void
-comm_cb_connect_start(int fd, struct fde *f, void *arg, fde_cb_status status)
+comm_cb_connect_start(int fd_unused, struct fde *f, void *arg,
+    fde_cb_status status)
 {
 	int ret;
 	struct fde_comm *c = arg;
 	fde_comm_cb_status s;
 
+#if 0
+	fprintf(stderr, "%s: %p: FD %d: called\n", __func__, c, fd);
+#endif
+
 	/* Closing? Don't do the IO; start the closing machinery */
 	if (c->is_closing) {
+		fprintf(stderr,
+			    "%s: %p: FD %d: closing\n",
+			    __func__,
+			    c,
+			    c->fd);
 		c->co.is_active = 0;
-		c->co.cb(fd, c, c->co.cbdata, FDE_COMM_CB_CLOSING, 0);
+		c->co.cb(c->fd, c, c->co.cbdata, FDE_COMM_CB_CLOSING, 0);
 		if (comm_is_close_ready(c)) {
 			comm_start_cleanup(c);
 			return;
@@ -370,15 +384,27 @@ comm_cb_connect_start(int fd, struct fde *f, void *arg, fde_cb_status status)
 		    "%s: %p: FD %d: comm_cb_connect_start but not active?\n",
 		    __func__,
 		    c,
-		    fd);
+		    c->fd);
 		return;
 	}
 
 	/* Start the first connect() attempt */
 	ret = connect(c->fd, (struct sockaddr *) &c->co.sin, c->co.slen);
 
+#if 0
+	fprintf(stderr, "%s: %p: FD %d: connect() returned %d (errno %d (%s))\n",
+	    __func__,
+	    c,
+	    c->fd,
+	    ret,
+	    errno,
+	    strerror(errno));
+#endif
 	/* In progress? Register for write-readiness */
 	if (ret < 0 && errno == EINPROGRESS) {
+#if 0
+		fprintf(stderr, "%s: %p: FD %d: waiting\n", __func__, c, c->fd);
+#endif
 		fde_add(c->fh_parent, c->ev_connect);
 		return;
 	}
@@ -390,7 +416,7 @@ comm_cb_connect_start(int fd, struct fde *f, void *arg, fde_cb_status status)
 	} else {
 		s = FDE_COMM_CB_COMPLETED;
 	}
-	c->co.cb(fd, c, c->a.cbdata, s, ret);
+	c->co.cb(c->fd, c, c->co.cbdata, s, ret == 0 ? 0 : errno);
 }
 
 /*

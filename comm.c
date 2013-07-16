@@ -20,16 +20,99 @@
  * It isn't at all useful for disk IO.
  */
 
+static int
+comm_is_close_ready(struct fde_comm *fc)
+{
+
+	/* XXX should error out if fc->is_closing isn't 1 */
+	if (fc->is_closing == 0)
+		return (0);
+
+	/*
+	 * For now - no active read/write.
+	 *
+	 * XXX Later, we will need to also disable pending
+	 * accept/connect machinery before doing this.
+	 */
+	return (fc->r.is_active == 0 && fc->w.is_active == 0);
+}
+
+static void
+comm_start_cleanup(struct fde_comm *fc)
+{
+
+	/* XXX complain if we're called when not closing / ready */
+	if (fc->is_closing == 0)
+		return;
+
+	/* We've already scheduled the cleanup */
+	if (fc->is_cleanup == 1)
+		return;
+
+	if (! comm_is_close_ready(fc))
+		return;
+
+	/* Schedule the cleanup */
+	fc->is_cleanup = 1;
+	fde_add(fc->fh_parent, fc->ev_cleanup);
+}
+
+
+
+/*
+ * Handle a read IO event.  This is just for socket reads; not
+ * for accept.
+ */
 static void
 comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
+	int ret;
+	struct fde_comm *c = arg;
+	fde_comm_cb_status s;
 
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		c->r.is_active = 0;
+		c->r.cb(fd, c, c->r.cbdata, FDE_COMM_CB_CLOSING, ret);
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
+	/* XXX validate that there's actually a buffer, len and callback */
+	ret = read(fd, c->r.buf, c->r.len);
+
+	/* If it's something we can restart, do so */
+	if (ret < 0) {
+		/*
+		 * XXX should only fail this a few times before
+		 * really failing.
+		 */
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			fde_add(c->fh_parent, c->ev_read);
+			return;
+		}
+	}
+
+	/*
+	 * Call the comm callback from this context.
+	 */
+	c->r.is_active = 0;
+	if (ret == 0)
+		s = FDE_COMM_CB_EOF;
+	else if (ret < 0)
+		s = FDE_COMM_CB_ERROR;
+	else
+		s = FDE_COMM_CB_COMPLETED;
+	c->r.cb(fd, c, c->r.cbdata, s, ret);
 }
 
 static void
 comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
 
+	/* XXX TODO */
 }
 
 static void
@@ -120,43 +203,6 @@ comm_mark_nonclose(struct fde_comm *fc)
 	fc->do_close = 0;
 }
 
-static int
-comm_is_close_ready(struct fde_comm *fc)
-{
-
-	/* XXX should error out if fc->is_closing isn't 1 */
-	if (fc->is_closing == 0)
-		return (0);
-
-	/*
-	 * For now - no active read/write.
-	 *
-	 * XXX Later, we will need to also disable pending
-	 * accept/connect machinery before doing this.
-	 */
-	return (fc->r.is_active == 0 && fc->w.is_active == 0);
-}
-
-static void
-comm_start_cleanup(struct fde_comm *fc)
-{
-
-	/* XXX complain if we're called when not closing / ready */
-	if (fc->is_closing == 0)
-		return;
-
-	/* We've already scheduled the cleanup */
-	if (fc->is_cleanup == 1)
-		return;
-
-	if (! comm_is_close_ready(fc))
-		return;
-
-	/* Schedule the cleanup */
-	fc->is_cleanup = 1;
-	fde_add(fc->fh_parent, fc->ev_cleanup);
-}
-
 /*
  * Schedule a comm object to be closed.
  *
@@ -205,11 +251,36 @@ comm_close(struct fde_comm *fc)
 	comm_start_cleanup(fc);
 }
 
+/*
+ * Begin an asynchronous network read.
+ *
+ * Returns 0 if the read was scheduled, -1 if there is already
+ * a pending asynchronous read.
+ */
 int
-comm_read(struct fde_comm *fc, char *buf, int len)
+comm_read(struct fde_comm *fc, char *buf, int len, comm_read_cb *cb,
+    void *cbdata)
 {
 
-	return (-1);
+	/* XXX should I be more vocal if this occurs */
+	if (fc->r.is_active == 1)
+		return (-1);
+
+	/*
+	 * XXX This is incompatible with doing accept/connect,
+	 * so ensure they're not active.
+	 */
+
+	fc->r.cb = cb;
+	fc->r.cbdata = cbdata;
+	fc->r.buf = buf;
+	fc->r.len = len;
+
+	/*
+	 * Begin doing read IO.
+	 */
+	fde_add(fc->fh_parent, fc->ev_read);
+	fc->r.is_active = 1;
 }
 
 int

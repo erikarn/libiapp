@@ -6,6 +6,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/queue.h>
@@ -19,7 +20,7 @@
 struct clt_app;
 struct conn;
 
-#define	NUM_CLIENTS_PER_THREAD		128
+#define	NUM_CLIENTS_PER_THREAD		4096
 
 typedef enum {
 	CONN_STATE_NONE,
@@ -98,7 +99,9 @@ conn_close(struct conn *c)
 	if (c->state == CONN_STATE_CLOSING)
 		return;
 
+#if 0
 	fprintf(stderr, "%s: %p: called\n", __func__, c);
+#endif
 
 	c->state = CONN_STATE_CLOSING;
 
@@ -184,11 +187,15 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 {
 	struct conn *c = arg;
 
+#if 0
 	fprintf(stderr, "%s: %p: called; status=%d, retval=%d\n",
 	    __func__, c, status, retval);
+#endif
 
 	/* Error? Notify the upper layer; finish */
 	if (status != FDE_COMM_CB_COMPLETED) {
+		fprintf(stderr, "%s: FD %d: %p: called; status=%d, retval=%d\n",
+		    __func__, fc->fd, c, status, retval);
 		c->state = CONN_STATE_ERROR;
 		c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
 		return;
@@ -244,7 +251,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 	/* Create an AF_INET socket */
 	/* XXX should be a method */
 	c->fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (c->fd == 0) {
+	if (c->fd < 0) {
 		warn("%s: socket", __func__);
 		free(c);
 		free(c->r.buf);
@@ -294,7 +301,9 @@ thrclt_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
 		} else {
 			r->num_clients--;
 		}
+#if 0
 		fprintf(stderr, "%s: %p: client freed\n", __func__, r);
+#endif
 	}
 }
 
@@ -309,6 +318,8 @@ thrclt_open_new_conn(struct clt_app *r)
 	 * For now, let's create one client object and kick-start it.
 	 */
 	c = conn_new(r, thrclt_conn_update_cb, r);
+	if (c == NULL)
+		return (-1);
 
 	/* Start connecting */
 	c->state = CONN_STATE_CONNECTING;
@@ -350,6 +361,12 @@ thrclt_new(void *arg)
 	return (NULL);
 }
 
+static void
+null_signal_hdl(int sig)
+{
+
+}
+
 int
 main(int argc, const char *argv[])
 {
@@ -360,6 +377,8 @@ main(int argc, const char *argv[])
 	rp = calloc(4, sizeof(struct clt_app));
 	if (rp == NULL)
 		perror("malloc");
+
+	signal(SIGPIPE, null_signal_hdl);
 
 	/* Create listen threads */
 	for (i = 0; i < 4; i++) {

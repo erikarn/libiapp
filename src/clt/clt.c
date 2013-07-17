@@ -49,6 +49,7 @@ struct clt_app;
 struct conn;
 
 #define	NUM_CLIENTS_PER_THREAD		4096
+#define	NUM_THREADS			4
 
 typedef enum {
 	CONN_STATE_NONE,
@@ -402,14 +403,14 @@ main(int argc, const char *argv[])
 	int i;
 
 	/* Allocate thread pool */
-	rp = calloc(4, sizeof(struct clt_app));
+	rp = calloc(NUM_THREADS, sizeof(struct clt_app));
 	if (rp == NULL)
 		perror("malloc");
 
 	signal(SIGPIPE, null_signal_hdl);
 
 	/* Create listen threads */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
 		r->h = fde_ctx_new();
 		TAILQ_INIT(&r->conn_list);

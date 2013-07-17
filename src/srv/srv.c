@@ -43,6 +43,8 @@
 #include "fde.h"
 #include "comm.h"
 
+#define	NUM_THREADS		4
+
 struct thr;
 struct conn;
 
@@ -76,7 +78,9 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	struct conn *c = arg;
 
 	/* Time to tidy up! */
+#if 0
 	fprintf(stderr, "%s: %p: freeing\n", __func__, c);
+#endif
 
 	/* This MUST be free at this point */
 	if (c->comm != NULL) {
@@ -96,7 +100,9 @@ client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
 {
 	struct conn *c = arg;
 
+#if 0
 	fprintf(stderr, "%s: FD %d: %p: close called\n", __func__, fd, c);
+#endif
 	/* NULL this - it'll be closed for us when this routine completes */
 	c->comm = NULL;
 
@@ -132,10 +138,14 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	 * get notification for that.
 	 */
 	if (c->is_closing && (c->close_called == 0)) {
-		fprintf(stderr, "%s: %p: FD %d: error; closing\n",
-		    __func__,
-		    c,
-		    fc->fd);
+		if (s != FDE_COMM_CB_EOF) {
+			fprintf(stderr, "%s: %p: FD %d: error; status=%d errno=%d\n",
+			    __func__,
+			    c,
+			    fc->fd,
+			    s,
+			    errno);
+		}
 		c->close_called = 1;
 		comm_close(fc);
 		return;
@@ -186,7 +196,12 @@ conn_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	struct thr *r = arg;
 	struct conn *c;
 
-	fprintf(stderr, "%s: %p: LISTEN: newfd=%d\n", __func__, r, newfd);
+	if (s != FDE_COMM_CB_COMPLETED) {
+		fprintf(stderr,
+		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
+		    __func__, r, s, errno, newfd);
+		return;
+	}
 
 	c = conn_new(r, newfd);
 	if (c == NULL) {
@@ -281,7 +296,7 @@ main(int argc, const char *argv[])
 	int i;
 
 	/* Allocate thread pool */
-	rp = calloc(4, sizeof(struct thr));
+	rp = calloc(NUM_THREADS, sizeof(struct thr));
 	if (rp == NULL)
 		perror("malloc");
 
@@ -292,7 +307,7 @@ main(int argc, const char *argv[])
 	}
 
 	/* Create listen threads */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();

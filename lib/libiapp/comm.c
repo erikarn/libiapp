@@ -241,39 +241,52 @@ comm_cb_accept(int fd, struct fde *f, void *arg, fde_cb_status status)
 		return;
 	}
 
-	slen = sizeof(sin);
+	/*
+	 * Loop over, accepting new connections.
+	 *
+	 * If the owner deletes the connection, we will drop out
+	 * from the loop and not re-add things.
+	 */
+	while (1) {
+		slen = sizeof(sin);
+		ret = accept(fd, (struct sockaddr *) &sin, &slen);
 
-	ret = accept(fd, (struct sockaddr *) &sin, &slen);
-	if (ret < 0) {
-		if (errno == EWOULDBLOCK || errno == EAGAIN) {
-			fde_add(c->fh_parent, c->ev_accept);
-			return;
-		}
+		/* Break out on error; handle it elsewhere */
+		if (ret < 0)
+			break;
 
 		/*
-		 * Re-add for another event; the caller may choose to
-		 * delete it and schedule things to close.
+		 * Default - set non-blocking.
 		 */
+		(void) comm_fd_set_nonblocking(ret, 1);
+
+		/*
+		 * Call the callback.
+		 */
+		c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_COMPLETED, ret,
+		    (struct sockaddr *) &sin, slen, 0);
+	}
+
+	/*
+	 * Handle error or transient error.
+	 */
+
+	/*
+	 * Transient error.
+	 */
+	if (errno == EWOULDBLOCK || errno == EAGAIN) {
 		fde_add(c->fh_parent, c->ev_accept);
-
-		/* Non-transient error; inform the upper layer */
-		c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_ERROR, -1, NULL, 0,
-		    errno);
-
 		return;
 	}
 
 	/*
-	 * Default - set non-blocking.
-	 */
-	(void) comm_fd_set_nonblocking(ret, 1);
-
-	/*
-	 * schedule for another event before we call the callback.
+	 * Re-add for another event; the caller may choose to
+	 * delete it and schedule things to close.
 	 */
 	fde_add(c->fh_parent, c->ev_accept);
-	c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_COMPLETED, ret,
-	    (struct sockaddr *) &sin, slen, 0);
+
+	/* Non-transient error; inform the upper layer */
+	c->a.cb(fd, c, c->a.cbdata, FDE_COMM_CB_ERROR, -1, NULL, 0, errno);
 }
 
 static void

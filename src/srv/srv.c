@@ -104,6 +104,10 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	 * get notification for that.
 	 */
 	if (c->is_closing && (c->close_called == 0)) {
+		fprintf(stderr, "%s: %p: FD %d: error; closing\n",
+		    __func__,
+		    c,
+		    fc->fd);
 		c->close_called = 1;
 		comm_close(fc);
 		return;

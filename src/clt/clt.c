@@ -22,8 +22,8 @@ struct conn;
 typedef enum {
 	CONN_STATE_NONE,
 	CONN_STATE_CONNECTING,
-	CONN_STATE_CONNECTED,
-	CONN_STATE_WRITING,
+	CONN_STATE_RUNNING,
+	CONN_STATE_ERROR,
 	CONN_STATE_CLOSING
 } conn_state_t;
 
@@ -32,7 +32,9 @@ struct conn {
 	struct clt_app *parent;
 	TAILQ_ENTRY(conn) node;
 	struct fde_comm *comm;
+	struct fde *ev_cleanup;
 	conn_state_t state;
+	uint64_t total_read, total_written;
 	struct {
 		char *buf;
 		int size;
@@ -71,6 +73,71 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 #endif
 
 static void
+conn_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct conn *c = arg;
+
+	/* XXX ensure we're closing and cleanup has been scheduled */
+
+	if (c->comm != NULL) {
+		fprintf(stderr, "%s: %p: comm not null?\n", __func__, c);
+	}
+
+	fde_delete(c->parent->h, c->ev_cleanup);
+	if (c->r.buf)
+		free(c->r.buf);
+	if (c->w.buf)
+		free(c->w.buf);
+	TAILQ_REMOVE(&c->parent->conn_list, c, node);
+	free(c);
+}
+
+static void
+conn_write_cb(int fd, struct fde_comm *fc, void *arg,
+    fde_comm_cb_status status, int nwritten)
+{
+	struct conn *c = arg;
+
+#if 0
+	fprintf(stderr, "%s: %p: called; status=%d, retval=%d\n",
+	    __func__, c, status, nwritten);
+#endif
+
+	/*
+	 * Not running? Skip.
+	 */
+	if (c->state != CONN_STATE_RUNNING)
+		return;
+
+	/* Any error? Transition; notify upper layer */
+	if (status != FDE_COMM_CB_COMPLETED) {
+		c->state = CONN_STATE_ERROR;
+		/* XXX notify */
+		return;
+	}
+
+	/* Update write statistics */
+	c->total_written += nwritten;
+
+	/* Did we write the whole buffer? If not, error */
+	if (nwritten != c->w.size) {
+		fprintf(stderr, "%s: %p: nwritten (%d) != size (%d)\n",
+		    __func__,
+		    c,
+		    c->w.size,
+		    nwritten);
+		c->state = CONN_STATE_ERROR;
+		/* XXX notify */
+		return;
+	}
+
+	/*
+	 * Write some more data
+	 */
+	comm_write(c->comm, c->w.buf, c->w.size, conn_write_cb, c);
+}
+
+static void
 conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
     fde_comm_cb_status status, int retval)
 {
@@ -78,12 +145,25 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 
 	fprintf(stderr, "%s: %p: called; status=%d, retval=%d\n",
 	    __func__, c, status, retval);
+
+	/* Error? Notify the upper layer; finish */
+	if (status != FDE_COMM_CB_COMPLETED) {
+		c->state = CONN_STATE_ERROR;
+		/* XXX notify */
+		return;
+	}
+
+	/* Success? Start writing data */
+	c->state = CONN_STATE_RUNNING;
+
+	comm_write(c->comm, c->w.buf, c->w.size, conn_write_cb, c);
 }
 
 struct conn *
 conn_new(struct clt_app *r)
 {
 	struct conn *c;
+	int i;
 
 	c = calloc(1, sizeof(*c));
 	if (c == NULL) {
@@ -99,7 +179,7 @@ conn_new(struct clt_app *r)
 		return (NULL);
 	}
 
-	c->w.size = 8192;
+	c->w.size = 8000;
 	c->w.buf = malloc(c->r.size);
 	if (c->w.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -108,18 +188,25 @@ conn_new(struct clt_app *r)
 		return (NULL);
 	}
 
+	/* Pre-populate */
+	for (i = 0; i < c->w.size; i++) {
+		c->w.buf[i] = (i % 10) + '0';
+	}
+
 	/* Create an AF_INET socket */
 	/* XXX should be a method */
 	c->fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (c->fd == 0) {
 		warn("%s: socket", __func__);
 		free(c);
-		free (c->r.buf);
-		free (c->w.buf);
+		free(c->r.buf);
+		free(c->w.buf);
 		return (NULL);
 	}
 	c->parent = r;
 	c->comm = comm_create(c->fd, r->h, NULL, NULL);
+	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK,
+	    conn_ev_cleanup_cb, c);
 	comm_set_nonblocking(c->comm, 1);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 

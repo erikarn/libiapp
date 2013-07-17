@@ -334,9 +334,19 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 void
 fde_runloop(struct fde_head *fh, const struct timespec *timeout)
 {
+	struct timespec zero_tv = { .tv_sec = 0, .tv_nsec = 0 };
 
+	/* Run callbacks - this may schedule more callbacks */
 	fde_cb_runloop(fh, timeout);
-	fde_rw_runloop(fh, timeout);
+
+	/*
+	 * Run the read/write IO kqueue loop - if we have any pending
+	 * callbacks above, we ensure we return immediately.
+	 */
+	if (TAILQ_FIRST(&fh->f_cb_head) == NULL)
+		fde_rw_runloop(fh, timeout);
+	else
+		fde_rw_runloop(fh, &zero_tv);
 }
 
 

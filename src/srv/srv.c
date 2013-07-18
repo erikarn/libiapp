@@ -43,7 +43,7 @@
 #include "fde.h"
 #include "comm.h"
 
-#define	NUM_THREADS		4
+#define	NUM_THREADS		16
 
 struct thr;
 struct conn;

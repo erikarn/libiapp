@@ -212,6 +212,18 @@ fde_cb_delete(struct fde_head *fh, struct fde *f)
 	TAILQ_REMOVE(&fh->f_cb_head, f, cb_node);
 }
 
+static void
+fde_t_delete(struct fde_head *fh, struct fde *f)
+{
+
+	if (! f->is_active)
+		return;
+
+	f->is_active = 0;
+	TAILQ_REMOVE(&fh->f_head, f, node);
+	TAILQ_REMOVE(&fh->f_t_head, f, cb_node);
+}
+
 void
 fde_add(struct fde_head *fh, struct fde *f)
 {
@@ -292,7 +304,7 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 	}
 
 	/* Walk the list, insertion sort */
-	TAILQ_FOREACH(n, &fh->f_t_head, node) {
+	TAILQ_FOREACH(n, &fh->f_t_head, cb_node) {
 		if (timeval_cmp(tv, &n->tv) > 0)
 			break;
 	}
@@ -309,9 +321,10 @@ fde_delete(struct fde_head *fh, struct fde *f)
 			fde_rw_delete(fh, f);
 			break;
 		case FDE_T_CALLBACK:
-			/* XXX Use the cb delete for timer events for now */
-		case FDE_T_TIMER:
 			fde_cb_delete(fh, f);
+			break;
+		case FDE_T_TIMER:
+			fde_t_delete(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
@@ -380,7 +393,7 @@ static void
 fde_t_runloop(struct fde_head *fh, const struct timeval *tv)
 {
 
-	struct fde *f, *f_next;
+	struct fde *f;
 
 	while ((f = TAILQ_FIRST(&fh->f_t_head)) != NULL) {
 		/*
@@ -404,7 +417,6 @@ fde_t_runloop(struct fde_head *fh, const struct timeval *tv)
 		if (timeval_cmp(tv, &f->tv) < 0)
 			break;
 
-		f_next = TAILQ_NEXT(f, cb_node);
 		fde_delete(fh, f);
 		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
 		/* f may be free at this point */

@@ -52,6 +52,7 @@ fde_ctx_new(void)
 
 	TAILQ_INIT(&fh->f_head);
 	TAILQ_INIT(&fh->f_cb_head);
+	TAILQ_INIT(&fh->f_t_head);
 
 	fh->kqfd = kqueue();
 	if (fh->kqfd == -1) {
@@ -113,6 +114,7 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
 			    EV_ENABLE | EV_ONESHOT, 0, 0, f);
 			break;
 		case FDE_T_CALLBACK:
+		case FDE_T_TIMER:
 			/* Nothing to do here */
 			break;
 		default:
@@ -230,6 +232,73 @@ fde_add(struct fde_head *fh, struct fde *f)
 	}
 }
 
+static int
+timeval_cmp(const struct timeval *t1, const struct timeval *t2)
+{
+	uint64_t l, r;
+
+	if (t1->tv_sec != t2->tv_sec) {
+		l = t1->tv_sec;
+		r = t2->tv_sec;
+	} else {
+		l = t1->tv_usec;
+		r = t2->tv_usec;
+	}
+	return ((l > r) - (l < r));
+}
+
+void
+fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
+{
+	struct fde *n;
+
+	if (f->f_type != FDE_T_TIMER) {
+		fprintf(stderr, "%s: %p: wrong type (%d)\n",
+		    __func__,
+		    f,
+		    f->f_type);
+	}
+
+	/* XXX should I complain? */
+	if (f->is_active)
+		return;
+
+	f->is_active = 1;
+
+	/* Insert onto active list */
+	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
+
+	/* Set timeout value */
+	f->tv = *tv;
+
+	/* Check if list is empty. */
+	if (TAILQ_FIRST(&fh->f_t_head) == NULL) {
+		TAILQ_INSERT_HEAD(&fh->f_t_head, f, cb_node);
+		return;
+	}
+
+	/* Check if before first */
+	n = TAILQ_FIRST(&fh->f_t_head);
+	if (timeval_cmp(tv, &n->tv) <= 0) {
+		TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
+		return;
+	}
+
+	/* Check if after last */
+	n = TAILQ_LAST(&fh->f_t_head, f_t);
+	if (timeval_cmp(tv, &n->tv) >= 0) {
+		TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
+		return;
+	}
+
+	/* Walk the list, insertion sort */
+	TAILQ_FOREACH(n, &fh->f_t_head, node) {
+		if (timeval_cmp(tv, &n->tv) > 0)
+			break;
+	}
+	TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
+}
+
 void
 fde_delete(struct fde_head *fh, struct fde *f)
 {
@@ -240,6 +309,8 @@ fde_delete(struct fde_head *fh, struct fde *f)
 			fde_rw_delete(fh, f);
 			break;
 		case FDE_T_CALLBACK:
+			/* XXX Use the cb delete for timer events for now */
+		case FDE_T_TIMER:
 			fde_cb_delete(fh, f);
 			break;
 		default:
@@ -251,12 +322,88 @@ fde_delete(struct fde_head *fh, struct fde *f)
 }
 
 static void
-fde_cb_runloop(struct fde_head *fh, const struct timespec *timeout)
+fde_cb_runloop(struct fde_head *fh)
 {
 
 	struct fde *f, *f_next;
 
 	while ((f = TAILQ_FIRST(&fh->f_cb_head)) != NULL) {
+		f_next = TAILQ_NEXT(f, cb_node);
+		fde_delete(fh, f);
+		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
+		/* f may be free at this point */
+	}
+}
+
+static void
+fde_t_get_timeout(struct fde_head *fh, const struct timeval *tv_now,
+    const struct timeval *tv_timeout, struct timeval *tv_sleep)
+{
+	struct fde *f;
+
+	f = TAILQ_FIRST(&fh->f_t_head);
+	/* If the timeout queue is empty, just allow max timeout */
+	if (f == NULL) {
+		*tv_sleep = *tv_timeout;
+		return;
+	}
+
+	/*
+	 * Calculate the delta between the current time (tv_now)
+	 * and the first timeout value in the list.
+	 *
+	 * + If tv_now >= f->tv, return '0'.
+	 * + If tv_now < f->tv, return the delta, capped by tv_timeout.
+	 */
+	if (timeval_cmp(tv_now, &f->tv) >= 0) {
+		tv_sleep->tv_sec = tv_sleep->tv_usec = 0;
+		return;
+	}
+
+	/*
+	 * We know that tv_now < f->tv here, so take some
+	 * shortcuts.
+	 *
+	 * XXX should methodize this!
+	 */
+	tv_sleep->tv_sec = f->tv.tv_sec - tv_now->tv_sec;
+	if (tv_now->tv_usec > f->tv.tv_usec) {
+		/* Borrow from the 'sec' column */
+		tv_sleep->tv_usec = f->tv.tv_usec + 1000000 - tv_now->tv_usec;
+		tv_sleep->tv_sec --;
+	} else {
+		tv_sleep->tv_usec = f->tv.tv_usec - tv_now->tv_usec;
+	}
+}
+
+static void
+fde_t_runloop(struct fde_head *fh, const struct timeval *tv)
+{
+
+	struct fde *f, *f_next;
+
+	while ((f = TAILQ_FIRST(&fh->f_t_head)) != NULL) {
+		/*
+		 * If the current time is less than the event
+		 * time, break out; we can't call anything else
+		 * in the list.
+		 */
+#if 0
+		fprintf(stderr, "%s: %p: checking %lld.%06lld against %lld.%06lld\n",
+		    __func__,
+		    fh,
+		    (unsigned long long) tv->tv_sec,
+		    (unsigned long long) tv->tv_usec,
+		    (unsigned long long) f->tv.tv_sec,
+		    (unsigned long long) f->tv.tv_usec);
+#endif
+
+#if 0
+		fprintf(stderr, "%s: %p: timeval_cmp=%d\n", __func__, fh, timeval_cmp(tv, &f->tv));
+#endif
+		if (timeval_cmp(tv, &f->tv) < 0)
+			break;
+
 		f_next = TAILQ_NEXT(f, cb_node);
 		fde_delete(fh, f);
 		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
@@ -360,21 +507,33 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 }
 
 void
-fde_runloop(struct fde_head *fh, const struct timespec *timeout)
+fde_runloop(struct fde_head *fh, const struct timeval *timeout)
 {
-	struct timespec zero_tv = { .tv_sec = 0, .tv_nsec = 0 };
+	struct timespec ts;
+	struct timeval tv_now, tv_sleep;
+
+	(void) gettimeofday(&tv_now, NULL);
 
 	/* Run callbacks - this may schedule more callbacks */
-	fde_cb_runloop(fh, timeout);
+	fde_cb_runloop(fh);
 
 	/*
-	 * Run the read/write IO kqueue loop - if we have any pending
-	 * callbacks above, we ensure we return immediately.
+	 * Run timer callbacks - again, this may schedule more
+	 * callbacks.
 	 */
-	if (TAILQ_FIRST(&fh->f_cb_head) == NULL)
-		fde_rw_runloop(fh, timeout);
-	else
-		fde_rw_runloop(fh, &zero_tv);
+	fde_t_runloop(fh, &tv_now);
+
+	/*
+	 * Check to see whether the timer or the callback have
+	 * any pending callbacks; calculate a tv appropriately.
+	 */
+	fde_t_get_timeout(fh, &tv_now, timeout, &tv_sleep);
+
+	ts.tv_sec = tv_sleep.tv_sec;
+	ts.tv_nsec = tv_sleep.tv_usec * 1000;
+
+	/*
+	 * Run the read/write IO kqueue loop.
+	 */
+	fde_rw_runloop(fh, &ts);
 }
-
-

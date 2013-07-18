@@ -214,7 +214,7 @@ void *
 thrsrv_new(void *arg)
 {
 	struct thr *r = arg;
-	struct timespec tv;
+	struct timeval tv;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
@@ -227,7 +227,7 @@ thrsrv_new(void *arg)
 	while (1) {
 
 		tv.tv_sec = 1;
-		tv.tv_nsec = 0;
+		tv.tv_usec = 0;
 		fde_runloop(r->h, &tv);
 	}
 

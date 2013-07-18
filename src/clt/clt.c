@@ -39,6 +39,7 @@
 #include <sys/event.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -50,6 +51,9 @@ struct conn;
 
 #define	NUM_CLIENTS_PER_THREAD		4096
 #define	NUM_THREADS			4
+
+//#define	NUM_CLIENTS_PER_THREAD 1
+//#define	NUM_THREADS 1
 
 typedef enum {
 	CONN_STATE_NONE,
@@ -87,7 +91,9 @@ struct conn {
 struct clt_app {
 	pthread_t thr_id;
 	struct fde_head *h;
+	struct fde *ev_stats;
 	int num_clients;
+	uint64_t total_read, total_written;
 	TAILQ_HEAD(, conn) conn_list;
 };
 
@@ -171,8 +177,9 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		return;
 	}
 
-	/* Update write statistics */
+	/* Update write statistics - local and parent app */
 	c->total_written += nwritten;
+	c->parent->total_written += nwritten;
 
 	/* Did we write the whole buffer? If not, error */
 	if (nwritten != c->w.size) {
@@ -365,14 +372,37 @@ thrclt_open_new_conn(struct clt_app *r)
 	return (0);
 }
 
+static void
+thrclt_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
+{
+	struct clt_app *r = arg;
+	struct timeval tv;
+
+	fprintf(stderr, "%s: %p: TX=%lld bytes, RX=%lld bytes\n",
+	    __func__,
+	    r,
+	    (unsigned long long) r->total_read,
+	    (unsigned long long) r->total_written);
+
+	/*
+	 * Schedule for another second from now.
+	 */
+	/* Add stat - to be called one second in the future */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_sec += 1;
+	fde_add_timeout(r->h, r->ev_stats, &tv);
+}
+
 void *
 thrclt_new(void *arg)
 {
 	struct clt_app *r = arg;
-	struct timespec tv;
+	struct timeval tv;
 	struct conn *c;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
+
+	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, thrclt_stat_print, r);
 
 	/* open up NUM_CLIENTS_PER_THREAD conncetions, stop if we fail */
 	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
@@ -380,10 +410,15 @@ thrclt_new(void *arg)
 			break;
 	}
 
+	/* Add stat - to be called one second in the future */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_sec += 1;
+	fde_add_timeout(r->h, r->ev_stats, &tv);
+
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {
 		tv.tv_sec = 1;
-		tv.tv_nsec = 0;
+		tv.tv_usec = 0;
 		fde_runloop(r->h, &tv);
 	}
 

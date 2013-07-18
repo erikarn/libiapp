@@ -391,8 +391,8 @@ thrclt_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
 	fprintf(stderr, "%s: [%d]: TX=%lld bytes, RX=%lld bytes\n",
 	    __func__,
 	    r->app_id,
-	    (unsigned long long) r->total_read,
-	    (unsigned long long) r->total_written);
+	    (unsigned long long) r->total_written,
+	    (unsigned long long) r->total_read);
 
 	/* Blank this out, so we get per-second stats */
 	r->total_read = 0;
@@ -419,11 +419,13 @@ thrclt_new(void *arg)
 	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_newconn_cb, r);
 	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, thrclt_stat_print, r);
 
+#if 1
 	/* open up NUM_CLIENTS_PER_THREAD conncetions, stop if we fail */
 	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
 		if (thrclt_open_new_conn(r) < 0)
 			break;
 	}
+#endif
 
 	/* Add stat - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);

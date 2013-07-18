@@ -52,6 +52,7 @@ struct conn;
 #define	NUM_CLIENTS_PER_THREAD		4096
 #define	NUM_THREADS			4
 #define	IO_SIZE				16384
+#define	MAX_NUM_NEW_CLIENTS		128
 
 //#define	NUM_CLIENTS_PER_THREAD 1
 //#define	NUM_THREADS 1
@@ -380,6 +381,28 @@ thrclt_open_new_conn(struct clt_app *r)
 static void
 thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
 {
+	int i;
+	struct clt_app *r = arg;
+	struct timeval tv;
+
+	/*
+	 * Attempt to open up new clients
+	 */
+	i = 0;
+	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
+		if (thrclt_open_new_conn(r) < 0)
+			break;
+		i++;
+		if (i > MAX_NUM_NEW_CLIENTS)
+			break;
+	}
+
+	/*
+	 * .. and schedule another creation event in the future.
+	 */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_sec += 1;
+	fde_add_timeout(r->h, r->ev_newconn, &tv);
 }
 
 static void
@@ -388,9 +411,10 @@ thrclt_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
 	struct clt_app *r = arg;
 	struct timeval tv;
 
-	fprintf(stderr, "%s: [%d]: TX=%lld bytes, RX=%lld bytes\n",
+	fprintf(stderr, "%s: [%d]: %d clients; TX=%lld bytes, RX=%lld bytes\n",
 	    __func__,
 	    r->app_id,
+	    r->num_clients,
 	    (unsigned long long) r->total_written,
 	    (unsigned long long) r->total_read);
 
@@ -419,18 +443,13 @@ thrclt_new(void *arg)
 	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_newconn_cb, r);
 	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, thrclt_stat_print, r);
 
-#if 1
-	/* open up NUM_CLIENTS_PER_THREAD conncetions, stop if we fail */
-	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
-		if (thrclt_open_new_conn(r) < 0)
-			break;
-	}
-#endif
-
 	/* Add stat - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);
 	tv.tv_sec += 1;
 	fde_add_timeout(r->h, r->ev_stats, &tv);
+
+	(void) gettimeofday(&tv, NULL);
+	fde_add_timeout(r->h, r->ev_newconn, &tv);
 
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {

@@ -45,6 +45,8 @@
 
 #define	NUM_THREADS		4
 
+#define	IO_SIZE			16384
+
 struct thr;
 struct conn;
 
@@ -166,7 +168,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->r.size = 8192;
+	c->r.size = IO_SIZE;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);

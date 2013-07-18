@@ -45,6 +45,8 @@
 
 #define	NUM_THREADS		4
 
+#define	IO_SIZE			16384
+
 struct thr;
 struct conn;
 
@@ -166,7 +168,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->r.size = 8192;
+	c->r.size = IO_SIZE;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -214,7 +216,7 @@ void *
 thrsrv_new(void *arg)
 {
 	struct thr *r = arg;
-	struct timespec tv;
+	struct timeval tv;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
@@ -227,7 +229,7 @@ thrsrv_new(void *arg)
 	while (1) {
 
 		tv.tv_sec = 1;
-		tv.tv_nsec = 0;
+		tv.tv_usec = 0;
 		fde_runloop(r->h, &tv);
 	}
 

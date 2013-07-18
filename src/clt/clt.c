@@ -51,6 +51,7 @@ struct conn;
 
 #define	NUM_CLIENTS_PER_THREAD		4096
 #define	NUM_THREADS			4
+#define	IO_SIZE				16384
 
 //#define	NUM_CLIENTS_PER_THREAD 1
 //#define	NUM_THREADS 1
@@ -90,6 +91,7 @@ struct conn {
 
 struct clt_app {
 	pthread_t thr_id;
+	int app_id;
 	struct fde_head *h;
 	struct fde *ev_stats;
 	int num_clients;
@@ -262,7 +264,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->r.size = 8192;
+	c->r.size = IO_SIZE;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -270,7 +272,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->w.size = 8000;
+	c->w.size = IO_SIZE;
 	c->w.buf = malloc(c->r.size);
 	if (c->w.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -378,11 +380,15 @@ thrclt_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
 	struct clt_app *r = arg;
 	struct timeval tv;
 
-	fprintf(stderr, "%s: %p: TX=%lld bytes, RX=%lld bytes\n",
+	fprintf(stderr, "%s: [%d]: TX=%lld bytes, RX=%lld bytes\n",
 	    __func__,
-	    r,
+	    r->app_id,
 	    (unsigned long long) r->total_read,
 	    (unsigned long long) r->total_written);
+
+	/* Blank this out, so we get per-second stats */
+	r->total_read = 0;
+	r->total_written = 0;
 
 	/*
 	 * Schedule for another second from now.
@@ -447,6 +453,7 @@ main(int argc, const char *argv[])
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
+		r->app_id = i;
 		r->h = fde_ctx_new();
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrclt_new, r) != 0)

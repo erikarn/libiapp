@@ -88,6 +88,9 @@ struct clt_app {
 	pthread_t thr_id;
 	struct fde_head *h;
 	int num_clients;
+	struct fde *ev_newconn;
+	char *remote_host;
+	int remote_port;
 	TAILQ_HEAD(, conn) conn_list;
 };
 
@@ -354,8 +357,8 @@ thrclt_open_new_conn(struct clt_app *r)
 	c->state = CONN_STATE_CONNECTING;
 	slen = sizeof(sin);
 	sin.sin_family = AF_INET;
-	sin.sin_port = htons(1667);
-	(void) inet_aton("127.0.0.1", &sin.sin_addr);
+	sin.sin_port = htons(r->remote_port);
+	(void) inet_aton(r->remote_host, &sin.sin_addr);
 	sin.sin_len = sizeof(struct sockaddr_in);
 	(void) comm_connect(c->comm, (struct sockaddr *) &sin, slen,
 	    conn_connect_cb, c);
@@ -363,6 +366,12 @@ thrclt_open_new_conn(struct clt_app *r)
 	r->num_clients++;
 
 	return (0);
+}
+
+static void
+thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
+{
+
 }
 
 void *
@@ -373,6 +382,10 @@ thrclt_new(void *arg)
 	struct conn *c;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
+
+	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_newconn_cb, r);
+
+	/* Start our connection creator */
 
 	/* open up NUM_CLIENTS_PER_THREAD conncetions, stop if we fail */
 	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
@@ -402,6 +415,8 @@ main(int argc, const char *argv[])
 	struct clt_app *rp, *r;
 	int i;
 
+	/* XXX validate command line parameters */
+
 	/* Allocate thread pool */
 	rp = calloc(NUM_THREADS, sizeof(struct clt_app));
 	if (rp == NULL)
@@ -413,6 +428,8 @@ main(int argc, const char *argv[])
 	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
 		r->h = fde_ctx_new();
+		r->remote_host = strdup(argv[1]);
+		r->remote_port = atoi(argv[2]);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrclt_new, r) != 0)
 			perror("pthread_create");

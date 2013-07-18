@@ -53,6 +53,7 @@ struct fde;
 struct fde_head {
 	TAILQ_HEAD(, fde) f_head;	/* list of all active entries */
 	TAILQ_HEAD(, fde) f_cb_head;	/* list of callbacks to perform */
+	TAILQ_HEAD(f_t, fde) f_t_head;	/* list of timer events to perform */
 	int kqfd;
 	struct kevent kev_list[FDE_HEAD_MAXEVENTS];
 };
@@ -88,6 +89,7 @@ struct fde {
 	fde_type f_type;
 	fde_callback *cb;
 	int is_active;
+	struct timeval tv;		/* time to fire this event */
 	void *cbdata;
 };
 
@@ -122,6 +124,16 @@ extern	void fde_free(struct fde_head *, struct fde *);
 extern	void fde_add(struct fde_head *, struct fde *);
 
 /*
+ * Add the event, but with a timeout.  This is only applicable
+ * for timer callbacks; any attempt to add a normal event
+ * this way will result in things blowing up.
+ *
+ * The callout will occur at or after 'tv'.
+ */
+extern	void fde_add_timeout(struct fde_head *, struct fde *,
+	    struct timeval *tv);
+
+/*
  * Remove the event.
  */
 extern	void fde_delete(struct fde_head *, struct fde *);
@@ -130,6 +142,6 @@ extern	void fde_delete(struct fde_head *, struct fde *);
  * Run the kqueue loop check.  This runs kevent() to check what
  * needs to be dispatched, then call the dispatch function.
  */
-extern	void fde_runloop(struct fde_head *, const struct timespec *timeout);
+extern	void fde_runloop(struct fde_head *, const struct timeval *timeout);
 
 #endif	/* __FDE_H__ */

@@ -40,16 +40,21 @@ typedef enum {
 	FDE_COMM_CB_ABORTED
 } fde_comm_cb_status;
 
+/* General - close */
+typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
+
+/* Stream - accept/connect */
+typedef void	comm_connect_cb(int fd, struct fde_comm *fc, void *arg,
+		    fde_comm_cb_status status, int retval);
 typedef void	comm_accept_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int newfd,
 		    struct sockaddr *saddr, socklen_t slen, int xerrno);
+
+/* Stream - read/write */
 typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int retval);
 typedef void	comm_write_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int nwritten);
-typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
-typedef void	comm_connect_cb(int fd, struct fde_comm *fc, void *arg,
-		    fde_comm_cb_status status, int retval);
 
 struct fde_comm {
 	int fd;

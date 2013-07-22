@@ -64,6 +64,8 @@ comm_is_close_ready(struct fde_comm *fc)
 	 *
 	 * XXX Later, we will need to also disable pending
 	 * accept/connect machinery before doing this.
+	 *
+	 * XXX Later, we should wrap up UDP read/write first!
 	 */
 	return (fc->r.is_active == 0 && fc->w.is_active == 0 &&
 	    fc->a.is_active == 0 && fc->co.is_active == 0);
@@ -108,6 +110,42 @@ comm_set_nonblocking(struct fde_comm *c, int enable)
 {
 
 	return (comm_fd_set_nonblocking(c->fd, enable));
+}
+
+struct fde_comm_udp_frame *
+fde_comm_udp_alloc(struct fde_comm *fc, int maxlen)
+{
+	struct fde_comm_udp_frame *fr;
+
+	fr = calloc(1, sizeof(*fr));
+	if (fr == NULL) {
+		warn("%s: calloc", __func__);
+		return (NULL);
+	}
+
+	fr->size = maxlen;
+
+	fr->buf = malloc(maxlen);
+	if (fr->buf == NULL) {
+		warn("%s: malloc", __func__);
+		free(fr);
+		return (NULL);
+	}
+
+	fr->sl_lcl = sizeof(fr->sa_lcl);
+	fr->sl_rem = sizeof(fr->sa_rem);
+
+	return (fr);
+}
+
+void
+fde_comm_udp_free(struct fde_comm *fc, struct fde_comm_udp_frame *fr)
+{
+
+	/* XXX ensure it's not on a linked list? */
+	if (fr->buf)
+		free(fr->buf);
+	free(fr);
 }
 
 /*
@@ -349,6 +387,11 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->fh_parent, c->ev_connect_start);
 	fde_free(c->fh_parent, c->ev_cleanup);
 
+	if (c->ev_udp_read)
+		fde_free(c->fh_parent, c->ev_udp_read);
+	if (c->ev_udp_write)
+		fde_free(c->fh_parent, c->ev_udp_write);
+
 	/*
 	 * Finally, free the fde_comm state.
 	 */
@@ -460,6 +503,53 @@ comm_cb_connect_start(int fd_unused, struct fde *f, void *arg,
 	c->co.cb(c->fd, c, c->co.cbdata, s, ret == 0 ? 0 : errno);
 }
 
+static void
+comm_cb_udp_read(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct fde_comm_udp_frame *fr;
+	struct fde_comm *c = arg;
+	int r, xerrno;
+
+	if (c->udp_r.is_active == 0) {
+		/* XXX disable the event */
+		return;
+	}
+
+	fr = fde_comm_udp_alloc(c, c->udp_r.maxlen);
+
+	/*
+	 * XXX Allocation failure? Tell the caller; we likely should
+	 * stop reading on this socket until the caller calls a 'restart'
+	 * method.
+	 */
+	if (fr == NULL) {
+		/* XXX ENOMEM? */
+		c->udp_r.cb(c->fd, c, c->udp_r.cbdata, NULL,
+		    FDE_COMM_CB_ERROR, ENOMEM);
+		return;
+	}
+
+	/* Do a read */
+	r = recvfrom(c->fd, fr->buf, fr->size, MSG_DONTWAIT,
+	    (struct sockaddr *) &fr->sa_rem, &fr->sl_rem);
+
+	if (r < 0) {
+		/* Free buffer, return errno */
+		xerrno = errno;
+		fde_comm_udp_free(c, fr);
+		c->udp_r.cb(c->fd, c, c->udp_r.cbdata, NULL,
+		    FDE_COMM_CB_ERROR, xerrno);
+		return;
+	}
+
+	/*
+	 * Re-schedule for read early; that way the callback
+	 * can just disable things.
+	 */
+	fde_add(c->fh_parent, c->ev_udp_read);
+	c->udp_r.cb(c->fd, c, c->udp_r.cbdata, fr, FDE_COMM_CB_COMPLETED, 0);
+}
+
 /*
  * Create an fde_comm object for the given file descriptor.
  *
@@ -509,6 +599,10 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	if (fc->ev_connect_start == NULL)
 		goto cleanup;
 
+	fc->ev_udp_read = fde_create(fh, fd, FDE_T_READ, comm_cb_udp_read, fc);
+	if (fc->ev_udp_read == NULL)
+		goto cleanup;
+
 	return (fc);
 
 cleanup:
@@ -524,6 +618,10 @@ cleanup:
 		fde_free(fh, fc->ev_connect);
 	if (fc->ev_connect_start)
 		fde_free(fh, fc->ev_connect_start);
+	if (fc->ev_udp_read)
+		fde_free(fh, fc->ev_udp_read);
+	if (fc->ev_udp_write)
+		fde_free(fh, fc->ev_udp_write);
 	free(fc);
 	return (NULL);
 }
@@ -696,6 +794,25 @@ comm_connect(struct fde_comm *fc, struct sockaddr *sin, socklen_t slen,
 	 */
 	fc->co.is_active = 1;
 	fde_add(fc->fh_parent, fc->ev_connect_start);
+
+	return (0);
+}
+
+int
+comm_udp_read(struct fde_comm *fc, comm_read_udp_cb *cb, void *cbdata,
+    int maxlen)
+{
+
+	if (fc->udp_r.is_active == 1)
+		return (-1);
+
+	/* XXX fail if we're not a data socket */
+
+	fc->udp_r.cb = cb;
+	fc->udp_r.cbdata = cbdata;
+	fc->udp_r.is_active = 1;
+	fc->udp_r.maxlen = maxlen;
+	fde_add(fc->fh_parent, fc->ev_udp_read);
 
 	return (0);
 }

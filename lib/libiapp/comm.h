@@ -40,6 +40,23 @@ typedef enum {
 	FDE_COMM_CB_ABORTED
 } fde_comm_cb_status;
 
+/*
+ * Represent a frame, both for transmit and receive.
+ */
+struct fde_comm_udp_frame {
+	TAILQ_ENTRY(fde_comm_udp) node;
+	char *buf;
+	int size;
+	int len;
+	int frame_id;		/* assigned by fde_comm */
+	int u_cookie;		/* assigned by owner */
+	void *p_cookie;		/* assigned by owner */
+	socklen_t sl_lcl;
+	socklen_t sl_rem;
+	struct sockaddr_storage sa_lcl;
+	struct sockaddr_storage sa_rem;
+};
+
 /* General - close */
 typedef void	comm_close_cb(int fd, struct fde_comm *fc, void *arg);
 
@@ -56,6 +73,14 @@ typedef void	comm_read_cb(int fd, struct fde_comm *fc, void *arg,
 typedef void	comm_write_cb(int fd, struct fde_comm *fc, void *arg,
 		    fde_comm_cb_status status, int nwritten);
 
+/* Datagram - read/write */
+typedef void	comm_read_udp_cb(int fd, struct fde_comm *fc, void *arg,
+		    struct fde_comm_udp_frame *fr, fde_comm_cb_status status,
+		    int xerrno);
+typedef void	comm_write_udp_cb(int fd, struct fde_comm *fc, void *arg,
+		    struct fde_comm_udp_frame *fr, fde_comm_cb_status status,
+		    int xerrno);
+
 struct fde_comm {
 	int fd;
 	int do_close;		/* Whether to close the FD */
@@ -69,12 +94,15 @@ struct fde_comm {
 	struct fde *ev_connect_start;
 	struct fde *ev_cleanup;
 
+	struct fde *ev_udp_read;
+	struct fde *ev_udp_write;
+
 	/* General state */
 	int is_closing;		/* Are we getting ready to close? */
 	int is_cleanup;		/* cleanup has been scheduled */
 
 	/*
-	 * Read state
+	 * Stream read state
 	 */
 	struct {
 		int is_active;
@@ -85,7 +113,7 @@ struct fde_comm {
 	} r;
 
 	/*
-	 * Write state
+	 * Stream write state
 	 */
 	struct {
 		int is_active;
@@ -123,6 +151,16 @@ struct fde_comm {
 		struct sockaddr_storage sin;
 		socklen_t slen;
 	} co;
+
+	/*
+	 * Datagram read state
+	 */
+	struct {
+		int maxlen;
+		int is_active;
+		comm_read_udp_cb *cb;
+		void *cbdata;
+	} udp_r;
 };
 
 /*
@@ -181,5 +219,27 @@ extern	int comm_listen(struct fde_comm *fc, comm_accept_cb *cb,
  */
 extern	int comm_connect(struct fde_comm *fc, struct sockaddr *sin,
 	    socklen_t slen, comm_connect_cb *cb, void *cbdata);
+
+/*
+ * Allocate a UDP frame.
+ */
+extern	struct fde_comm_udp_frame * fde_comm_udp_alloc(struct fde_comm *fc,
+	    int maxlen);
+
+/*
+ * Free the given UDP frame.
+ */
+extern	void fde_comm_udp_free(struct fde_comm *fc,
+	    struct fde_comm_udp_frame *fr);
+
+/*
+ * Free a UDP frame.
+ */
+
+/*
+ * Start receiving UDP frames from the given file descriptor.
+ */
+extern	int comm_udp_read(struct fde_comm *fc, comm_read_udp_cb *cb,
+	    void *cbdata, int maxlen);
 
 #endif	/* __COMM_H__ */

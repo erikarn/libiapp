@@ -523,6 +523,10 @@ comm_cb_udp_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 * method.
 	 */
 	if (fr == NULL) {
+		/*
+		 * Reschedule; the parent can deschedule us if required.
+		 */
+		fde_add(c->fh_parent, c->ev_udp_read);
 		/* XXX ENOMEM? */
 		c->udp_r.cb(c->fd, c, c->udp_r.cbdata, NULL,
 		    FDE_COMM_CB_ERROR, ENOMEM);
@@ -537,10 +541,17 @@ comm_cb_udp_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		/* Free buffer, return errno */
 		xerrno = errno;
 		fde_comm_udp_free(c, fr);
+		/*
+		 * Reschedule; the parent can deschedule us if required.
+		 */
+		fde_add(c->fh_parent, c->ev_udp_read);
 		c->udp_r.cb(c->fd, c, c->udp_r.cbdata, NULL,
 		    FDE_COMM_CB_ERROR, xerrno);
 		return;
 	}
+
+	/* Set socket length */
+	fr->len = r;
 
 	/*
 	 * Re-schedule for read early; that way the callback

@@ -276,17 +276,8 @@ thrsrv_new(void *arg)
 {
 	struct thr *r = arg;
 	struct timeval tv;
-	int fd;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
-
-	/* Create listen socket per thread - using SO_REUSEADDR/SO_REUSEPORT */
-	fd = thrsrv_listenfd(1667);
-	if (fd < 0) {
-		perror("listenfd");
-	}
-
-	r->thr_sockfd = fd;
 
 	/* Create a listen comm object */
 	r->comm_listen = comm_create(r->thr_sockfd, r->h, NULL, NULL);
@@ -309,16 +300,25 @@ main(int argc, const char *argv[])
 {
 	struct thr *rp, *r;
 	int i;
+	int fd;
 
 	/* Allocate thread pool */
 	rp = calloc(NUM_THREADS, sizeof(struct thr));
 	if (rp == NULL)
 		perror("malloc");
 
+	/* Create listen socket per thread - using SO_REUSEADDR/SO_REUSEPORT */
+	fd = thrsrv_listenfd(1667);
+	if (fd < 0) {
+		perror("listenfd");
+	}
+
+
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
-
+		/* Shared single listen FD, multiple threads interested */
+		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)

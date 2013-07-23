@@ -70,39 +70,47 @@ thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
 	struct timeval tv;
 	struct clt_app *r = arg;
 	struct fde_comm_udp_frame *fr;
-	int i;
+	int i, cnt;
 
+#if 0
 	fprintf(stderr, "%s: [%d]: sending\n",
 	    __func__,
 	    r->app_id);
+#endif
 
-	/*
-	 * Send one frame for now - this function for now
-	 * alloc's the buffer
-	 */
-	fr = fde_comm_udp_alloc(r->comm_wr, r->max_io_size);
+	for (cnt = 0; cnt < r->connrate; cnt++) {
+		/*
+		 * Send one frame for now - this function for now
+		 * alloc's the buffer
+		 */
+		fr = fde_comm_udp_alloc(r->comm_wr, r->max_io_size);
 
-	/*
-	 * Fake some data
-	 */
-	for (i = 0; i < r->max_io_size; i++) {
-		fr->buf[i] = 'A' + (i % 26);
+		/*
+		 * Fake some data
+		 */
+		for (i = 0; i < r->max_io_size; i++) {
+			fr->buf[i] = 'A' + (i % 26);
+		}
+		fr->len = r->max_io_size;
+
+		/*
+		 * Set the remote socket information.
+		 */
+		((struct sockaddr_in *) &fr->sa_rem)->sin_family = AF_INET;
+		((struct sockaddr_in *) &fr->sa_rem)->sin_len = sizeof(struct sockaddr_in);
+		((struct sockaddr_in *) &fr->sa_rem)->sin_port = htons(r->remote_port);
+		((struct sockaddr_in *) &fr->sa_rem)->sin_addr.s_addr = inet_addr(r->remote_host);
+		fr->sl_rem = sizeof(struct sockaddr_in);
+
+		/*
+		 * Queue frame; bail out if we hit the max queue
+		 * depth.
+		 */
+		if (comm_udp_write(r->comm_wr, fr) < 0) {
+			fde_comm_udp_free(r->comm_wr, fr);
+			break;
+		}
 	}
-	fr->len = r->max_io_size;
-
-	/*
-	 * Set the remote socket information.
-	 */
-	((struct sockaddr_in *) &fr->sa_rem)->sin_family = AF_INET;
-	((struct sockaddr_in *) &fr->sa_rem)->sin_len = sizeof(struct sockaddr_in);
-	((struct sockaddr_in *) &fr->sa_rem)->sin_port = htons(r->remote_port);
-	((struct sockaddr_in *) &fr->sa_rem)->sin_addr.s_addr = inet_addr(r->remote_host);
-	fr->sl_rem = sizeof(struct sockaddr_in);
-
-	if (comm_udp_write(r->comm_wr, fr) < 0) {
-		fde_comm_udp_free(r->comm_wr, fr);
-	}
-
 
 	/* Add newconn - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);
@@ -122,6 +130,8 @@ thrclt_ev_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
 	    (unsigned long long) r->total_pkt_written,
 	    (unsigned long long) r->total_byte_written);
 
+	r->total_pkt_written = r->total_byte_written = 0;
+
 	/* Add stat - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);
 	tv.tv_sec += 1;
@@ -135,12 +145,14 @@ thrsrv_comm_udp_write_cb(int fd, struct fde_comm *fc, void *arg,
 {
 	struct clt_app *r = arg;
 
+#if 0
 	fprintf(stderr, "%s: [%d]: called; status=%d, wr=%d, errno=%d\n",
 	    __func__,
 	    r->app_id,
 	    status,
 	    nwritten,
 	    xerrno);
+#endif
 
 	/*
 	 * For now, just account stuff and free the buffer.

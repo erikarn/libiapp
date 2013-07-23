@@ -980,7 +980,7 @@ comm_udp_write(struct fde_comm *fc, struct fde_comm_udp_frame *fr)
 	if (fc->udp_w.is_active == 0 || fc->is_closing == 1)
 		return (-1);
 
-	if (fc->udp_w.max_qlen >= fc->udp_w.qlen)
+	if (fc->udp_w.qlen >= fc->udp_w.max_qlen)
 		return (-1);
 
 	TAILQ_INSERT_TAIL(&fc->udp_w.w_q, fr, node);

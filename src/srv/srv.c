@@ -73,6 +73,65 @@ struct thr {
 	TAILQ_HEAD(, conn) conn_list;
 };
 
+static int
+thrsrv_listenfd(int port)
+{
+	int fd;
+	struct sockaddr_in sin;
+	int a;
+
+	bzero(&sin, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = 0;
+	sin.sin_port = htons(port);
+	sin.sin_len = sizeof(sin);
+
+	fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0) {
+		fprintf(stderr, "%s: socket() failed; errno=%d (%s)\n",
+		    __func__,
+		    errno,
+		    strerror(errno));
+		return (-1);
+	}
+
+	/* Make non-blocking */
+	(void) comm_fd_set_nonblocking(fd, 1);
+
+#if 0
+	/* make reuse */
+	a = 1;
+	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &a, sizeof(a));
+#endif
+
+	/* and reuse port */
+	a = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &a, sizeof(a)) < 0) {
+		err(1, "%s: setsockopt", __func__);
+	}
+
+	if (bind(fd, (struct sockaddr *) &sin, sizeof(sin)) < 0) {
+		fprintf(stderr, "%s: bind() faioed; errno=%d (%s)\n",
+		    __func__,
+		    errno,
+		    strerror(errno));
+		close(fd);
+		return (-1);
+	}
+
+	if (listen(fd, -1) < 0) {
+		fprintf(stderr, "%s: listen() faioed; errno=%d (%s)\n",
+		    __func__,
+		    errno,
+		    strerror(errno));
+		close(fd);
+		return (-1);
+	}
+
+	return (fd);
+}
+
+
 static void
 client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
@@ -217,8 +276,17 @@ thrsrv_new(void *arg)
 {
 	struct thr *r = arg;
 	struct timeval tv;
+	int fd;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
+
+	/* Create listen socket per thread - using SO_REUSEADDR/SO_REUSEPORT */
+	fd = thrsrv_listenfd(1667);
+	if (fd < 0) {
+		perror("listenfd");
+	}
+
+	r->thr_sockfd = fd;
 
 	/* Create a listen comm object */
 	r->comm_listen = comm_create(r->thr_sockfd, r->h, NULL, NULL);
@@ -237,63 +305,8 @@ thrsrv_new(void *arg)
 }
 
 int
-thrsrv_listenfd(int port)
-{
-	int fd;
-	struct sockaddr_in sin;
-	int a;
-
-	bzero(&sin, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_addr.s_addr = 0;
-	sin.sin_port = htons(port);
-	sin.sin_len = sizeof(sin);
-
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd < 0) {
-		fprintf(stderr, "%s: socket() failed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		return (-1);
-	}
-
-	/* Make non-blocking */
-	(void) comm_fd_set_nonblocking(fd, 1);
-
-	/* make reuse */
-	a = 1;
-	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &a, sizeof(&a));
-
-	/* and reuse port */
-	a = 1;
-	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &a, sizeof(&a));
-
-	if (bind(fd, (struct sockaddr *) &sin, sizeof(sin)) < 0) {
-		fprintf(stderr, "%s: bind() faioed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		close(fd);
-		return (-1);
-	}
-
-	if (listen(fd, -1) < 0) {
-		fprintf(stderr, "%s: listen() faioed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		close(fd);
-		return (-1);
-	}
-
-	return (fd);
-}
-
-int
 main(int argc, const char *argv[])
 {
-	int fd;
 	struct thr *rp, *r;
 	int i;
 
@@ -302,16 +315,10 @@ main(int argc, const char *argv[])
 	if (rp == NULL)
 		perror("malloc");
 
-	/* Create listen socket */
-	fd = thrsrv_listenfd(1667);
-	if (fd < 0) {
-		perror("listenfd");
-	}
-
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
 		r = &rp[i];
-		r->thr_sockfd = fd;
+
 		r->h = fde_ctx_new();
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)

@@ -68,7 +68,8 @@ comm_is_close_ready(struct fde_comm *fc)
 	 * XXX Later, we should wrap up UDP read/write first!
 	 */
 	return (fc->r.is_active == 0 && fc->w.is_active == 0 &&
-	    fc->a.is_active == 0 && fc->co.is_active == 0);
+	    fc->a.is_active == 0 && fc->co.is_active == 0 &&
+	    fc->udp_r.is_active == 0 && fc->udp_w.is_active == 0);
 }
 
 static void
@@ -386,11 +387,8 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->fh_parent, c->ev_connect);
 	fde_free(c->fh_parent, c->ev_connect_start);
 	fde_free(c->fh_parent, c->ev_cleanup);
-
-	if (c->ev_udp_read)
-		fde_free(c->fh_parent, c->ev_udp_read);
-	if (c->ev_udp_write)
-		fde_free(c->fh_parent, c->ev_udp_write);
+	fde_free(c->fh_parent, c->ev_udp_read);
+	fde_free(c->fh_parent, c->ev_udp_write);
 
 	/*
 	 * Finally, free the fde_comm state.
@@ -510,10 +508,22 @@ comm_cb_udp_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	struct fde_comm *c = arg;
 	int r, xerrno;
 
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		c->udp_r.is_active = 0;
+		c->udp_r.cb(c->fd, c, c->udp_r.cbdata, NULL,
+		    FDE_COMM_CB_CLOSING, ENOMEM);
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
 	if (c->udp_r.is_active == 0) {
 		/* XXX disable the event */
 		return;
 	}
+
 
 	fr = fde_comm_udp_alloc(c, c->udp_r.maxlen);
 
@@ -559,6 +569,117 @@ comm_cb_udp_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 */
 	fde_add(c->fh_parent, c->ev_udp_read);
 	c->udp_r.cb(c->fd, c, c->udp_r.cbdata, fr, FDE_COMM_CB_COMPLETED, 0);
+}
+
+/*
+ * Write data to the UDP socket.
+ */
+static void
+comm_cb_udp_write(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct fde_comm_udp_frame *fr;
+	struct fde_comm *c = arg;
+	int ret;
+	int r, xerrno;
+
+	/* Closing? Don't do the IO; start the closing machinery */
+	if (c->is_closing) {
+		while ((fr = TAILQ_FIRST(&c->udp_w.w_q)) != NULL) {
+			TAILQ_REMOVE(&c->udp_w.w_q, fr, node);
+			c->udp_w.qlen--;
+			c->udp_w.cb(c->fd, c, c->udp_w.cbdata, fr,
+			    FDE_COMM_CB_CLOSING,
+			    0,
+			    0);
+		}
+
+		/* No longer active/primed */
+		c->udp_w.is_active = 0;
+
+		/* XXX disable event */
+		c->udp_w.is_primed = 0;
+
+		if (comm_is_close_ready(c)) {
+			comm_start_cleanup(c);
+			return;
+		}
+	}
+
+	if (c->udp_w.is_active == 0 || c->udp_w.is_primed == 0) {
+		/* XXX disable the event */
+		return;
+	}
+
+	/*
+	 * If the queue is empty, just bail for now.
+	 *
+	 * The next write will re-add the event.
+	 */
+	fr = TAILQ_FIRST(&c->udp_w.w_q);
+	if (fr == NULL) {
+		/* XXX disable event */
+		c->udp_w.is_primed = 0;
+		return;
+	}
+
+	/*
+	 * Since we're using one-shot events, we are no longer
+	 * primed.
+	 */
+	c->udp_w.is_primed = 0;
+
+	/*
+	 * Loop through, doing sendto() calls until the first
+	 * one fails.  Report each result to the upper layer.
+	 */
+	while ((fr = TAILQ_FIRST(&c->udp_w.w_q)) != NULL) {
+		ret = sendto(c->fd, fr->buf, fr->len, MSG_NOSIGNAL,
+		    (struct sockaddr *) &fr->sa_rem,
+		    fr->sl_rem);
+
+		/*
+		 * error case - break out if the errors are temporary,
+		 * otherwise signal that there was an error when
+		 * sending this message.
+		 */
+		if (ret < 0) {
+			if (errno == EWOULDBLOCK || errno == EAGAIN
+			    || errno == EINTR)
+				 break;
+
+			/* Yup, an error */
+			TAILQ_REMOVE(&c->udp_w.w_q, fr, node);
+			c->udp_w.qlen--;
+			c->udp_w.cb(c->fd, c, c->udp_w.cbdata, fr,
+			    FDE_COMM_CB_ERROR,
+			    0,
+			    errno);
+
+			/* XXX stop processing for now? */
+			continue;
+		}
+
+		/*
+		 * No error case - remove from list, call callback;
+		 * it's the owners problem now.
+		 */
+		TAILQ_REMOVE(&c->udp_w.w_q, fr, node);
+		c->udp_w.qlen--;
+		c->udp_w.cb(c->fd, c, c->udp_w.cbdata, fr,
+		    (ret == fr->len) ? FDE_COMM_CB_COMPLETED : FDE_COMM_CB_ERROR,
+		    ret,
+		    0);
+	}
+
+	/*
+	 * If there's more left in the queue, re-prime.
+	 * Otherwise, bail; the next UDP socket queue will
+	 * prime this.
+	 */
+	if (TAILQ_FIRST(&c->udp_w.w_q) != NULL) {
+		c->udp_w.is_primed = 1;
+		fde_add(c->fh_parent, c->ev_udp_write);
+	}
 }
 
 /*
@@ -613,6 +734,12 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	fc->ev_udp_read = fde_create(fh, fd, FDE_T_READ, comm_cb_udp_read, fc);
 	if (fc->ev_udp_read == NULL)
 		goto cleanup;
+
+	fc->ev_udp_write = fde_create(fh, fd, FDE_T_WRITE, comm_cb_udp_write,
+	    fc);
+	if (fc->ev_udp_write == NULL)
+		goto cleanup;
+	TAILQ_INIT(&fc->udp_w.w_q);
 
 	return (fc);
 
@@ -826,4 +953,41 @@ comm_udp_read(struct fde_comm *fc, comm_read_udp_cb *cb, void *cbdata,
 	fde_add(fc->fh_parent, fc->ev_udp_read);
 
 	return (0);
+}
+
+int
+comm_udp_write_setup(struct fde_comm *fc, comm_write_udp_cb *cb, void *cbdata,
+    int qlen)
+{
+	if (fc->udp_w.is_active == 1)
+		return (-1);
+
+	fc->udp_w.cb = cb;
+	fc->udp_w.cbdata = cbdata;
+	fc->udp_w.is_active = 1;
+	fc->udp_w.is_primed = 0;
+	fc->udp_w.max_qlen = qlen;
+	fc->udp_w.qlen = 0;
+
+	return (0);
+}
+
+int
+comm_udp_write(struct fde_comm *fc, struct fde_comm_udp_frame *fr)
+{
+
+	/* Don't allow new things to be queued if it's closing */
+	if (fc->udp_w.is_active == 0 || fc->is_closing == 1)
+		return (-1);
+
+	if (fc->udp_w.max_qlen >= fc->udp_w.qlen)
+		return (-1);
+
+	TAILQ_INSERT_TAIL(&fc->udp_w.w_q, fr, node);
+	fc->udp_w.qlen++;
+
+	if (fc->udp_w.is_primed == 0) {
+		fc->udp_w.is_primed = 1;
+		fde_add(fc->fh_parent, fc->ev_udp_write);
+	}
 }

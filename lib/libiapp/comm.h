@@ -44,7 +44,7 @@ typedef enum {
  * Represent a frame, both for transmit and receive.
  */
 struct fde_comm_udp_frame {
-	TAILQ_ENTRY(fde_comm_udp) node;
+	TAILQ_ENTRY(fde_comm_udp_frame) node;
 	char *buf;
 	int size;
 	int len;
@@ -79,7 +79,7 @@ typedef void	comm_read_udp_cb(int fd, struct fde_comm *fc, void *arg,
 		    int xerrno);
 typedef void	comm_write_udp_cb(int fd, struct fde_comm *fc, void *arg,
 		    struct fde_comm_udp_frame *fr, fde_comm_cb_status status,
-		    int xerrno);
+		    int nwritten, int xerrno);
 
 struct fde_comm {
 	int fd;
@@ -161,6 +161,19 @@ struct fde_comm {
 		comm_read_udp_cb *cb;
 		void *cbdata;
 	} udp_r;
+
+	/*
+	 * Datagram write state
+	 */
+	struct {
+		int is_active;
+		int is_primed;
+		int max_qlen;
+		int qlen;
+		TAILQ_HEAD(udp_w_q, fde_comm_udp_frame) w_q;
+		comm_write_udp_cb *cb;
+		void *cbdata;
+	} udp_w;
 };
 
 /*
@@ -233,13 +246,29 @@ extern	void fde_comm_udp_free(struct fde_comm *fc,
 	    struct fde_comm_udp_frame *fr);
 
 /*
- * Free a UDP frame.
- */
-
-/*
  * Start receiving UDP frames from the given file descriptor.
  */
 extern	int comm_udp_read(struct fde_comm *fc, comm_read_udp_cb *cb,
 	    void *cbdata, int maxlen);
+
+/*
+ * Set the callback and the number of UDP frames that we will
+ * queue on this comm FD.  Any attempt to queue more will result
+ * in the queue request failing.
+ */
+extern	int comm_udp_write_setup(struct fde_comm *fc, comm_write_udp_cb *cb,
+	    void *cbdata, int qlen);
+
+/*
+ * Queue a new UDP frame to go out.  It will return -1 if the
+ * queue failed.  It's up to the caller to free the buffer
+ * if the transmit fails.
+ *
+ * Each queued item will have the callback called, either on
+ * success or failure/close.  So the caller is responsible
+ * for freeing the frame.
+ */
+extern	int comm_udp_write(struct fde_comm *fc,
+	    struct fde_comm_udp_frame *fr);
 
 #endif	/* __COMM_H__ */

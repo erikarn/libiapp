@@ -26,8 +26,12 @@
 # SUCH DAMAGE.
 #
 
-.include <bsd.own.mk>
+PROG=udp_clt
+SRCS=udp_clt.c
+CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -O0
+LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/
+LDADD=-lpthread -liapp
+NO_MAN=1
+DEBUG_FLAGS=-g
 
-SUBDIR=srv clt udp_srv udp_clt
-
-.include <bsd.subdir.mk>
+.include <bsd.prog.mk>

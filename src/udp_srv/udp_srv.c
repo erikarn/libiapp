@@ -64,12 +64,16 @@ conn_recvmsg(int fd, struct fde_comm *fc, void *arg,
 	struct conn *c;
 
 	if (s != FDE_COMM_CB_COMPLETED) {
+		if (xerrno == EAGAIN || xerrno == EWOULDBLOCK)
+			return;
+
 		fprintf(stderr,
 		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
 		    __func__, r, s, errno, fd);
 		return;
 	}
 
+#if 0
 	/*
 	 * Print things out.
 	 */
@@ -78,6 +82,7 @@ conn_recvmsg(int fd, struct fde_comm *fc, void *arg,
 	    __func__,
 	    r,
 	    fr->len);
+#endif
 
 	/*
 	 * Free the UDP frame.

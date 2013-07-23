@@ -49,14 +49,6 @@
 struct clt_app;
 struct conn;
 
-#define	NUM_CLIENTS_PER_THREAD		4096
-#define	NUM_THREADS			4
-#define	IO_SIZE				16384
-#define	MAX_NUM_NEW_CLIENTS		128
-
-//#define	NUM_CLIENTS_PER_THREAD 1
-//#define	NUM_THREADS 1
-
 typedef enum {
 	CONN_STATE_NONE,
 	CONN_STATE_CONNECTING,
@@ -93,6 +85,9 @@ struct conn {
 struct clt_app {
 	pthread_t thr_id;
 	int app_id;
+	int max_io_size;
+	int nconns;
+	int connrate;
 	struct fde_head *h;
 	struct fde *ev_stats;
 	int num_clients;
@@ -268,7 +263,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->r.size = IO_SIZE;
+	c->r.size = r->max_io_size;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -276,7 +271,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->w.size = IO_SIZE;
+	c->w.size = r->max_io_size;
 	c->w.buf = malloc(c->r.size);
 	if (c->w.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -389,11 +384,11 @@ thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
 	 * Attempt to open up new clients
 	 */
 	i = 0;
-	while (r->num_clients < NUM_CLIENTS_PER_THREAD) {
+	while (r->num_clients < r->nconns) {
 		if (thrclt_open_new_conn(r) < 0)
 			break;
 		i++;
-		if (i > MAX_NUM_NEW_CLIENTS)
+		if (i > r->connrate)
 			break;
 	}
 
@@ -467,35 +462,57 @@ null_signal_hdl(int sig)
 
 }
 
+static void
+usage(const char *progname)
+{
+	printf("Usage: %s <numthreads> <numconns> <connrate> <bufsize> <remote IPv4 address> <port>\n",
+	    progname);
+	exit(127);
+}
+
 int
 main(int argc, const char *argv[])
 {
 	struct clt_app *rp, *r;
 	int i;
+	int nthreads, connrate, bufsize, nconns, rem_port;
+	char *rem_ip;
 
 	/* XXX validate command line parameters */
+	if (argc < 7)
+		usage(argv[0]);
+
+	nthreads = atoi(argv[1]);
+	nconns = atoi(argv[2]);
+	connrate = atoi(argv[3]);
+	bufsize = atoi(argv[4]);
+	rem_ip = strdup(argv[5]);
+	rem_port = atoi(argv[6]);
 
 	/* Allocate thread pool */
-	rp = calloc(NUM_THREADS, sizeof(struct clt_app));
+	rp = calloc(nthreads, sizeof(struct clt_app));
 	if (rp == NULL)
 		perror("malloc");
 
 	signal(SIGPIPE, null_signal_hdl);
 
 	/* Create listen threads */
-	for (i = 0; i < NUM_THREADS; i++) {
+	for (i = 0; i < nthreads; i++) {
 		r = &rp[i];
 		r->app_id = i;
 		r->h = fde_ctx_new();
-		r->remote_host = strdup(argv[1]);
-		r->remote_port = atoi(argv[2]);
+		r->remote_host = strdup(rem_ip);
+		r->remote_port = rem_port;
+		r->max_io_size = bufsize;
+		r->nconns = nconns;
+		r->connrate = connrate;
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrclt_new, r) != 0)
 			perror("pthread_create");
 	}
 
 	/* Join */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < nthreads; i++) {
 		pthread_join(rp[i].thr_id, NULL);
 	}
 

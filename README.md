@@ -87,4 +87,9 @@ What's broken?
   I'm experimenting with different ways to do connection pinning and
   supporting that in FreeBSD.  I will eventually abstract this stuff out
   into libiapp so network applications don't have to setup sockets themselves.
-
+* I'm 100% using oneshot events for now, purely for simplification of things.
+  I'll eventually start supporting persistent events for things that
+  make sense.
+* Every event modification is calling kevent() once.  I'm not batching
+  even updates.  Yes, it's terribly inefficient.  Yes, I should fix
+  this.

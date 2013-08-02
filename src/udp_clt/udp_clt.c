@@ -176,8 +176,10 @@ thrclt_new(void *arg)
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
-	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_newconn_cb, r);
-	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_stat_print, r);
+	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrclt_ev_newconn_cb, r);
+	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrclt_ev_stat_print, r);
 
 	/* Create the local socket */
 	fd = socket(AF_INET, SOCK_DGRAM, 0);

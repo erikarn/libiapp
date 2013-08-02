@@ -297,7 +297,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 	}
 	c->parent = r;
 	c->comm = comm_create(c->fd, r->h, conn_close_cb, c);
-	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK,
+	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
 	    conn_ev_cleanup_cb, c);
 	comm_set_nonblocking(c->comm, 1);
 
@@ -435,8 +435,10 @@ thrclt_new(void *arg)
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 
-	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, thrclt_ev_newconn_cb, r);
-	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, thrclt_stat_print, r);
+	r->ev_newconn = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrclt_ev_newconn_cb, r);
+	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrclt_stat_print, r);
 
 	/* Add stat - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);

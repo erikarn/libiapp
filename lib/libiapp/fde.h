@@ -75,6 +75,10 @@ typedef enum {
 	FDE_T_AIO		/* XXX not yet implemented */
 } fde_type;
 
+typedef enum {
+	FDE_F_PERSIST	= 0x00000001	/* stay registered */
+} fde_flags;
+
 typedef	void fde_callback(int fd, struct fde *, void *arg,
 	    fde_cb_status status);
 
@@ -87,6 +91,7 @@ struct fde {
 	TAILQ_ENTRY(fde) node;
 	TAILQ_ENTRY(fde) cb_node;
 	fde_type f_type;
+	uint32_t f_flags;
 	fde_callback *cb;
 	int is_active;
 	struct timeval tv;		/* time to fire this event */
@@ -108,7 +113,7 @@ extern	void fde_ctx_free(struct fde_head *);
  * Create an FD struct for a given FD.
  */
 extern	struct fde * fde_create(struct fde_head *, int fd, fde_type t,
-	    fde_callback *cb, void *cbdata);
+		uint32_t flags, fde_callback *cb, void *cbdata);
 
 /*
  * Free the state associated with this FD.

@@ -238,7 +238,7 @@ conn_new(struct thr *r, int fd)
 	c->fd = fd;
 	c->parent = r;
 	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
-	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK,
+	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
 	    client_ev_cleanup_cb, c);
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 

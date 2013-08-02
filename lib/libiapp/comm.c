@@ -164,6 +164,7 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	if (c->is_closing) {
 		c->r.is_active = 0;
 		c->r.cb(fd, c, c->r.cbdata, FDE_COMM_CB_CLOSING, 0);
+		fde_delete(c->fh_parent, c->ev_read);
 		if (comm_is_close_ready(c)) {
 			comm_start_cleanup(c);
 			return;
@@ -175,6 +176,7 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		    __func__,
 		    c,
 		    fd);
+		fde_delete(c->fh_parent, c->ev_read);
 		return;
 	}
 
@@ -188,7 +190,6 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		 * really failing.
 		 */
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			fde_add(c->fh_parent, c->ev_read);
 			return;
 		}
 	}
@@ -203,6 +204,16 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		s = FDE_COMM_CB_ERROR;
 	else
 		s = FDE_COMM_CB_COMPLETED;
+
+	/*
+	 * If we hit an error or EOF, we stop reading.
+	 */
+	if (s != FDE_COMM_CB_COMPLETED)
+		fde_delete(c->fh_parent, c->ev_read);
+
+	/*
+	 * And now, the callback.
+	 */
 	c->r.cb(fd, c, c->r.cbdata, s, ret);
 }
 
@@ -705,38 +716,47 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	fc->c.cb = cb;
 	fc->c.cbdata = cbdata;
 
-	fc->ev_read = fde_create(fh, fd, FDE_T_READ, comm_cb_read, fc);
+
+	/*
+	 * Persist here means that we will get a single notification
+	 * for each _change_ in the read buffer size.  No, we won't
+	 * get constant notifications whilst the FD is ready for reading.
+	 */
+	fc->ev_read = fde_create(fh, fd, FDE_T_READ, FDE_F_PERSIST,
+	    comm_cb_read, fc);
 	if (fc->ev_read == NULL)
 		goto cleanup;
 
-	fc->ev_write = fde_create(fh, fd, FDE_T_WRITE, comm_cb_write, fc);
+	fc->ev_write = fde_create(fh, fd, FDE_T_WRITE, 0, comm_cb_write, fc);
 	if (fc->ev_write == NULL)
 		goto cleanup;
 
-	fc->ev_cleanup = fde_create(fh, -1, FDE_T_CALLBACK,
+	fc->ev_cleanup = fde_create(fh, -1, FDE_T_CALLBACK, 0,
 	    comm_cb_cleanup, fc);
 	if (fc->ev_cleanup == NULL)
 		goto cleanup;
 
-	fc->ev_accept = fde_create(fh, fd, FDE_T_READ, comm_cb_accept, fc);
+	fc->ev_accept = fde_create(fh, fd, FDE_T_READ, 0, comm_cb_accept, fc);
 	if (fc->ev_accept == NULL)
 		goto cleanup;
 
-	fc->ev_connect = fde_create(fh, fd, FDE_T_WRITE, comm_cb_connect, fc);
+	fc->ev_connect = fde_create(fh, fd, FDE_T_WRITE, 0, comm_cb_connect,
+	    fc);
 	if (fc->ev_connect == NULL)
 		goto cleanup;
 
-	fc->ev_connect_start = fde_create(fh, -1, FDE_T_CALLBACK,
+	fc->ev_connect_start = fde_create(fh, -1, FDE_T_CALLBACK, 0,
 	     comm_cb_connect_start, fc);
 	if (fc->ev_connect_start == NULL)
 		goto cleanup;
 
-	fc->ev_udp_read = fde_create(fh, fd, FDE_T_READ, comm_cb_udp_read, fc);
+	fc->ev_udp_read = fde_create(fh, fd, FDE_T_READ, 0, comm_cb_udp_read,
+	    fc);
 	if (fc->ev_udp_read == NULL)
 		goto cleanup;
 
-	fc->ev_udp_write = fde_create(fh, fd, FDE_T_WRITE, comm_cb_udp_write,
-	    fc);
+	fc->ev_udp_write = fde_create(fh, fd, FDE_T_WRITE, 0,
+	    comm_cb_udp_write, fc);
 	if (fc->ev_udp_write == NULL)
 		goto cleanup;
 	TAILQ_INIT(&fc->udp_w.w_q);

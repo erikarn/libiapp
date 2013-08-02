@@ -71,9 +71,31 @@ fde_ctx_free(struct fde_head *fh)
 	fprintf(stderr, "%s: not implemented\n", __func__);
 }
 
+static int
+fde_ev_flags(struct fde *f, uint32_t kev_flags)
+{
+	uint32_t fl = kev_flags;
+
+	/*
+	 * For read/write FD events, we either do
+	 * oneshot, or clear.  Clear means the event
+	 * isn't deleted, but we need a followup
+	 * state change (ie, more data arrives or
+	 * is written out the network) before another
+	 * event is posted.
+	 */
+	if (f->f_flags & FDE_F_PERSIST) {
+		kev_flags |= EV_CLEAR;
+	} else {
+		kev_flags |= EV_ONESHOT;
+	}
+
+	return (fl);
+}
+
 struct fde *
-fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
-    void *cbdata)
+fde_create(struct fde_head *fh, int fd, fde_type t, fde_flags fl,
+    fde_callback *cb, void *cbdata)
 {
 
 	struct fde *f;
@@ -86,6 +108,7 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
 
 	f->fd = fd;
 	f->f_type = t;
+	f->f_flags = fl;
 	f->cb = cb;
 	f->cbdata = cbdata;
 
@@ -101,17 +124,21 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_callback *cb,
 			 * where it becomes read-ready for an EOF condition.
 			 */
 			EV_SET(&f->kev, fd, EVFILT_READ,
-			    EV_ENABLE | EV_ONESHOT,
+			    fde_ev_flags(f, EV_ENABLE),
 #ifdef	NOTE_EOF
 			    NOTE_EOF,
 #else
 			    0,
 #endif
-			    0, f);
+			    0,
+			    f);
 			break;
 		case FDE_T_WRITE:
 			EV_SET(&f->kev, fd, EVFILT_WRITE,
-			    EV_ENABLE | EV_ONESHOT, 0, 0, f);
+			    fde_ev_flags(f, EV_ENABLE),
+			    0,
+			    0,
+			    f);
 			break;
 		case FDE_T_CALLBACK:
 		case FDE_T_TIMER:
@@ -155,8 +182,8 @@ fde_rw_add(struct fde_head *fh, struct fde *f)
 	/*
 	 * Assume the event is already setup to be added.
 	 */
-	f->kev.flags &= (EV_DELETE | EV_ADD | EV_ONESHOT);
-	f->kev.flags |= EV_ADD | EV_ONESHOT;
+	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
+	f->kev.flags |= fde_ev_flags(f, EV_ADD);
 
 	if (kevent(fh->kqfd, &f->kev, 1, NULL, 0, NULL) < 0) {
 		warn("%s: kqueue", __func__);
@@ -175,7 +202,7 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
 	if (! f->is_active)
 		return;
 
-	f->kev.flags &= (EV_DELETE | EV_ADD | EV_ONESHOT);
+	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
 	f->kev.flags |= EV_DELETE;
 
 	if (kevent(fh->kqfd, &f->kev, 1, NULL, 0, NULL) < 0) {

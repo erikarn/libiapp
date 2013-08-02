@@ -317,9 +317,14 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 	}
 
 	/* Check if before first */
+	/*
+	 * XXX this doesn't preserve order; we'd have to walk
+	 * the list and find the first instance of the timer
+	 * being _greater_ than this timer and add it there.
+	 */
 	n = TAILQ_FIRST(&fh->f_t_head);
 	if (timeval_cmp(tv, &n->tv) <= 0) {
-		TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
+		TAILQ_INSERT_HEAD(&fh->f_t_head, f, cb_node);
 		return;
 	}
 

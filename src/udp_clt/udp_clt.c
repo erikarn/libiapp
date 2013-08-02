@@ -65,18 +65,10 @@ struct clt_app {
 };
 
 static void
-thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
+thrclt_send_frames(struct clt_app *r)
 {
-	struct timeval tv;
-	struct clt_app *r = arg;
 	struct fde_comm_udp_frame *fr;
 	int i, cnt;
-
-#if 0
-	fprintf(stderr, "%s: [%d]: sending\n",
-	    __func__,
-	    r->app_id);
-#endif
 
 	for (cnt = 0; cnt < r->connrate; cnt++) {
 		/*
@@ -111,11 +103,19 @@ thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
 			break;
 		}
 	}
+}
 
-	/* Add newconn - to be called one second in the future */
-	(void) gettimeofday(&tv, NULL);
-	tv.tv_sec += 1;
-	fde_add_timeout(r->h, r->ev_newconn, &tv);
+static void
+thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
+{
+	struct clt_app *r = arg;
+
+#if 0
+	fprintf(stderr, "%s: [%d]: sending\n",
+	    __func__,
+	    r->app_id);
+#endif
+	thrclt_send_frames(r);
 }
 
 static void
@@ -144,6 +144,7 @@ thrsrv_comm_udp_write_cb(int fd, struct fde_comm *fc, void *arg,
     int nwritten, int xerrno)
 {
 	struct clt_app *r = arg;
+	struct timeval tv;
 
 #if 0
 	fprintf(stderr, "%s: [%d]: called; status=%d, wr=%d, errno=%d\n",
@@ -163,6 +164,12 @@ thrsrv_comm_udp_write_cb(int fd, struct fde_comm *fc, void *arg,
 	}
 
 	fde_comm_udp_free(fc, fr);
+
+	/* Try sending more frames */
+//	thrclt_send_frames(r);
+
+	(void) gettimeofday(&tv, NULL);
+	fde_add_timeout(r->h, r->ev_newconn, &tv);
 }
 
 void *
@@ -223,6 +230,9 @@ thrclt_new(void *arg)
 	tv.tv_sec += 1;
 	fde_add_timeout(r->h, r->ev_stats, &tv);
 
+	/*
+	 * Send initial frames
+	 */
 	(void) gettimeofday(&tv, NULL);
 	fde_add_timeout(r->h, r->ev_newconn, &tv);
 

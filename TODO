@@ -1,0 +1,18 @@
+
+* Re-implement the FD read and FD UDP read methods to use EV_PERSIST
+  correctly:
+  + have an fde_comm flag to say "yes, i've added the event"
+  + have an fde_comm flag to say "yes, I've seen an FD_READ event
+    but I've not done any IO yet"
+  + when someone registers for a comm udp read or comm_read, check
+    if the fde_comm flag above indiciates that an FD_READ event
+    has been seen, and if so, schedule the ready callback to try
+    doing IO
+  + And once recvfrom() or read() is done, clear that flag.
+  + .. and on error, just delete the event and clear the flags
+    above.
+
+  The aim here is to make the FD read code only need to register
+  a read FD event once and keep it persistent for the lifespan
+  of the commfd state - regardless of whether there's an active
+  IO callback going on.

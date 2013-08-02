@@ -526,6 +526,11 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 		TAILQ_REMOVE(&fh->f_head, f, node);
 		if (f->cb)
 			f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
+		else
+			fprintf(stderr, "%s: FD %d: no callback?\n",
+			    __func__,
+			    f->fd);
+
 		/*
 		 * XXX at this point, 'f' may be totally invalid, so
 		 * we have to ensure we don't reference it.

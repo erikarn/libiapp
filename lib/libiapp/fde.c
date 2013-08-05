@@ -173,6 +173,37 @@ fde_free(struct fde_head *fh, struct fde *f)
 }
 
 static void
+fde_kq_flush(struct fde_head *fh)
+{
+	int ret;
+
+	if (fh->pending.n < (FDE_HEAD_MAXEVENTS-1))
+		return;
+
+	ret = kevent(fh->kqfd, fh->pending.kev_list, fh->pending.n, NULL, 0, NULL);
+	if (ret < 0) {
+		warn("%s: kevent", __func__);
+		/* XXX Error handling? */
+	}
+
+	fh->pending.n = 0;
+}
+
+static void
+fde_kq_push(struct fde_head *fh, struct kevent *k)
+{
+	int ret;
+
+	/*
+	 * If it's full; let's flush it out
+	 */
+	fde_kq_flush(fh);
+
+	memcpy(&fh->pending.kev_list[fh->pending.n], k, sizeof(struct kevent));
+	fh->pending.n++;
+}
+
+static void
 fde_rw_add(struct fde_head *fh, struct fde *f)
 {
 
@@ -185,11 +216,7 @@ fde_rw_add(struct fde_head *fh, struct fde *f)
 	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
 	f->kev.flags |= fde_ev_flags(f, EV_ADD);
 
-	if (kevent(fh->kqfd, &f->kev, 1, NULL, 0, NULL) < 0) {
-		warn("%s: kqueue", __func__);
-		/* XXX return error? */
-		return;
-	}
+	fde_kq_push(fh, &f->kev);
 
 	f->is_active = 1;
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
@@ -205,11 +232,7 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
 	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
 	f->kev.flags |= EV_DELETE;
 
-	if (kevent(fh->kqfd, &f->kev, 1, NULL, 0, NULL) < 0) {
-		warn("%s: kqueue", __func__);
-		/* XXX return error? */
-		return;
-	}
+	fde_kq_push(fh, &f->kev);
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
@@ -462,8 +485,13 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 	int ret, i;
 	struct fde *f;
 
-	ret = kevent(fh->kqfd, NULL, 0, fh->kev_list, FDE_HEAD_MAXEVENTS,
+	ret = kevent(fh->kqfd, fh->pending.kev_list, fh->pending.n, fh->kev_list, FDE_HEAD_MAXEVENTS,
 	    timeout);
+
+	/*
+	 * XXX error handling for pushing events?
+	 */
+	fh->pending.n = 0;
 
 	if (ret == 0)
 		return;

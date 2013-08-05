@@ -45,7 +45,7 @@
 struct fde_head;
 struct fde;
 
-#define	FDE_HEAD_MAXEVENTS	32
+#define	FDE_HEAD_MAXEVENTS	128
 
 /*
  * FD event queue.  One per thread.
@@ -56,6 +56,10 @@ struct fde_head {
 	TAILQ_HEAD(f_t, fde) f_t_head;	/* list of timer events to perform */
 	int kqfd;
 	struct kevent kev_list[FDE_HEAD_MAXEVENTS];
+	struct {
+		struct kevent kev_list[FDE_HEAD_MAXEVENTS];
+		int n;
+	} pending;
 };
 
 typedef enum {

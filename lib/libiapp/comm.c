@@ -328,14 +328,6 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 		s = FDE_COMM_CB_EOF;
 	} else {
 		s = FDE_COMM_CB_COMPLETED;
-		/*
-		 * XXX since I'm not checking whether there's any space left
-		 * in the socket buffer here, let's attempt an immediate write again.
-		 *
-		 * Ideally we'd just loop over trying write() until we ran out of
-		 * buffer to write or the syscall returned an error or partial write.
-		 */
-		fde_add(c->fh_parent, c->ev_write_cb);
 	}
 //	fprintf(stderr, "%s: ret=%d, s=%d, offset=%d\n", __func__, ret, s, c->w.offset);
 

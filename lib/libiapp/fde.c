@@ -632,20 +632,21 @@ fde_runloop(struct fde_head *fh, const struct timeval *timeout)
 	fde_t_runloop(fh, &tv_now);
 
 	/*
-	 * Check to see whether the timer or the callback have
-	 * any pending callbacks; calculate a tv appropriately.
-	 */
-	fde_t_get_timeout(fh, &tv_now, timeout, &tv_sleep);
-
-	ts.tv_sec = tv_sleep.tv_sec;
-	ts.tv_nsec = tv_sleep.tv_usec * 1000;
-
-	/*
 	 * If there are any scheduled callbacks, make sure we
 	 * immediately bail out of the kevent loop.
 	 */
-	if (TAILQ_FIRST(&fh->f_cb_head) != NULL)
+	if (TAILQ_FIRST(&fh->f_cb_head) != NULL) {
 		ts.tv_sec = ts.tv_nsec = 0;
+	} else {
+		/*
+		 * Check to see whether the timer list has any pending
+		 * callbacks; calculate a tv appropriately.
+		 */
+		fde_t_get_timeout(fh, &tv_now, timeout, &tv_sleep);
+
+		ts.tv_sec = tv_sleep.tv_sec;
+		ts.tv_nsec = tv_sleep.tv_usec * 1000;
+	}
 
 	/*
 	 * Run the read/write IO kqueue loop.

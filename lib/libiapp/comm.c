@@ -224,8 +224,6 @@ comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
 	struct fde_comm *c = arg;
 
-//	fprintf(stderr, "%s: called\n", __func__);
-
 	c->w.is_ready = 1;
 	if (! c->w.is_active)
 		return;
@@ -275,6 +273,10 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 	ret = write(c->fd, c->w.buf + c->w.offset, c->w.len - c->w.offset);
 //	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
 
+	/*
+	 * XXX TODO: figure out why occasionally I'll see EAGAIN if the
+	 * socket buffer _has_ space to write into.
+	 */
 	if (ret < 0) {
 //		fprintf(stderr, "%s: errno=%d (%s)\n", __func__, errno, strerror(errno));
 		/*
@@ -306,7 +308,7 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 	 */
 //	fprintf(stderr, "%s: ret=%d, offset=%d, len=%d\n", __func__, ret, c->w.offset, c->w.len);
 	if (ret >= 0 && c->w.offset < c->w.len) {
-		fde_add(c->fh_parent, c->ev_write_cb);
+//		fde_add(c->fh_parent, c->ev_write_cb);
 		return;
 	}
 

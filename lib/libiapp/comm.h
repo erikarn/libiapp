@@ -89,6 +89,7 @@ struct fde_comm {
 	/* Events */
 	struct fde *ev_read;
 	struct fde *ev_write;
+	struct fde *ev_write_cb;
 	struct fde *ev_accept;
 	struct fde *ev_connect;
 	struct fde *ev_connect_start;
@@ -117,6 +118,8 @@ struct fde_comm {
 	 */
 	struct {
 		int is_active;
+		int is_ready;	/* 1 when the write-ready event has fired */
+		int is_write;	/* have we scheduled the write event? */
 		char *buf;
 		int len;
 		int offset;

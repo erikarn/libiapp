@@ -64,8 +64,6 @@ comm_is_close_ready(struct fde_comm *fc)
 	 *
 	 * XXX Later, we will need to also disable pending
 	 * accept/connect machinery before doing this.
-	 *
-	 * XXX Later, we should wrap up UDP read/write first!
 	 */
 	return (fc->r.is_active == 0 && fc->w.is_active == 0 &&
 	    fc->a.is_active == 0 && fc->co.is_active == 0 &&
@@ -217,42 +215,73 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	c->r.cb(fd, c, c->r.cbdata, s, ret);
 }
 
+/*
+ * IO write ready - set the relevant bit; if there's a write
+ * ongoing we schedule that callback.
+ */
 static void
 comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct fde_comm *c = arg;
+
+//	fprintf(stderr, "%s: called\n", __func__);
+
+	c->w.is_ready = 1;
+	if (! c->w.is_active)
+		return;
+
+	/*
+	 * This schedules the actual IO callback to occur.
+	 * That way if we become write ready but we haven't
+	 * yet been scheduled for write, we will just wait.
+	 */
+	fde_add(c->fh_parent, c->ev_write_cb);
+}
+
+/*
+ * Check to see if we can do any write IO.
+ */
+static void
+comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 {
 	int ret;
 	struct fde_comm *c = arg;
 	fde_comm_cb_status s;
 
+//	fprintf(stderr, "%s: called\n", __func__);
+
 	/* Closing? Don't do the IO; start the closing machinery */
 	if (c->is_closing) {
 		c->w.is_active = 0;
-		c->w.cb(fd, c, c->w.cbdata, FDE_COMM_CB_CLOSING, c->w.offset);
+		c->w.is_ready = 0;
+		c->w.cb(c->fd, c, c->w.cbdata, FDE_COMM_CB_CLOSING, c->w.offset);
 		if (comm_is_close_ready(c)) {
 			comm_start_cleanup(c);
 			return;
 		}
 	}
 
-	if (c->w.is_active == 0) {
+	if (c->w.is_active == 0 || c->w.is_ready == 0) {
 		fprintf(stderr, "%s: %p: FD %d: comm_cb_write but not active?\n",
 		    __func__,
 		    c,
-		    fd);
+		    c->fd);
 		return;
 	}
 
 	/*
 	 * Write out from the current buffer position.
 	 */
-	ret = write(fd, c->w.buf + c->w.offset, c->w.len - c->w.offset);
+	ret = write(c->fd, c->w.buf + c->w.offset, c->w.len - c->w.offset);
+//	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
+
 	if (ret < 0) {
+//		fprintf(stderr, "%s: errno=%d (%s)\n", __func__, errno, strerror(errno));
 		/*
 		 * XXX should only fail this a few times before
 		 * really failing.
 		 */
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			fde_add(c->fh_parent, c->ev_write);
 			return;
 		}
 	}
@@ -267,9 +296,17 @@ comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 	/*
 	 * If we have more left to write and we didn't error
 	 * out, go for another pass.
+	 *
+	 * XXX I should have the upper layer record how much space
+	 * is left in the socket buffer (it's returned in the knote response)
+	 * before I do this logic, so I can avoid doing an EWOULDBLOCK write.
+	 *
+	 * For history - this is what Squid tried to implement as
+	 * "optimistic writes" - assume you can do the write.
 	 */
+//	fprintf(stderr, "%s: ret=%d, offset=%d, len=%d\n", __func__, ret, c->w.offset, c->w.len);
 	if (ret >= 0 && c->w.offset < c->w.len) {
-		fde_add(c->fh_parent, c->ev_write);
+		fde_add(c->fh_parent, c->ev_write_cb);
 		return;
 	}
 
@@ -283,13 +320,26 @@ comm_cb_write(int fd, struct fde *f, void *arg, fde_cb_status status)
 	c->w.is_active = 0;
 	if (ret < 0) {
 		s = FDE_COMM_CB_ERROR;
+#if 0
+		fde_delete(c->fh_parent, c->ev_write);
+		c->w.is_write = 0;
+#endif
 	} else if (ret == 0) {
 		s = FDE_COMM_CB_EOF;
 	} else {
 		s = FDE_COMM_CB_COMPLETED;
+		/*
+		 * XXX since I'm not checking whether there's any space left
+		 * in the socket buffer here, let's attempt an immediate write again.
+		 *
+		 * Ideally we'd just loop over trying write() until we ran out of
+		 * buffer to write or the syscall returned an error or partial write.
+		 */
+		fde_add(c->fh_parent, c->ev_write_cb);
 	}
+//	fprintf(stderr, "%s: ret=%d, s=%d, offset=%d\n", __func__, ret, s, c->w.offset);
 
-	c->w.cb(fd, c, c->w.cbdata, s, c->w.offset);
+	c->w.cb(c->fd, c, c->w.cbdata, s, c->w.offset);
 }
 
 static void
@@ -394,6 +444,7 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 */
 	fde_free(c->fh_parent, c->ev_read);
 	fde_free(c->fh_parent, c->ev_write);
+	fde_free(c->fh_parent, c->ev_write_cb);
 	fde_free(c->fh_parent, c->ev_accept);
 	fde_free(c->fh_parent, c->ev_connect);
 	fde_free(c->fh_parent, c->ev_connect_start);
@@ -727,8 +778,12 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	if (fc->ev_read == NULL)
 		goto cleanup;
 
-	fc->ev_write = fde_create(fh, fd, FDE_T_WRITE, 0, comm_cb_write, fc);
+	fc->ev_write = fde_create(fh, fd, FDE_T_WRITE, FDE_F_PERSIST, comm_cb_write, fc);
 	if (fc->ev_write == NULL)
+		goto cleanup;
+
+	fc->ev_write_cb = fde_create(fh, -1, FDE_T_CALLBACK, 0, comm_cb_write_cb, fc);
+	if (fc->ev_write_cb == NULL)
 		goto cleanup;
 
 	fc->ev_cleanup = fde_create(fh, -1, FDE_T_CALLBACK, 0,
@@ -768,6 +823,8 @@ cleanup:
 		fde_free(fh, fc->ev_read);
 	if (fc->ev_write)
 		fde_free(fh, fc->ev_write);
+	if (fc->ev_write_cb)
+		fde_free(fh, fc->ev_write_cb);
 	if (fc->ev_cleanup)
 		fde_free(fh, fc->ev_cleanup);
 	if (fc->ev_accept)
@@ -878,6 +935,8 @@ comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
     void *cbdata)
 {
 
+//	fprintf(stderr, "%s: called; len=%d\n", __func__, len);
+
 	/* XXX should I be more vocal if this occurs */
 	if (fc->w.is_active == 1)
 		return (-1);
@@ -893,10 +952,29 @@ comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
 	fc->w.offset = 0;
 
 	/*
-	 * Begin doing write IO.
+	 * Begin doing write IO.  Only schedule the event if we
+	 * aren't already ready for it.
 	 */
-	fde_add(fc->fh_parent, fc->ev_write);
+	if (! fc->w.is_write) {
+		fde_add(fc->fh_parent, fc->ev_write);
+		fc->w.is_write = 1;
+	}
+
+	/*
+	 * We're now active!
+	 */
 	fc->w.is_active = 1;
+
+	/*
+	 * Now, we're not setting w.is_pending to 0 here.
+	 *
+	 * It's possible that a previous write-ready fired whilst
+	 * we weren't yet ready to write anything, so w.is_ready=1.
+	 * Thus, we'll check here to see if it's set and if so we'll
+	 * schedule the write callback.
+	 */
+	if (fc->w.is_ready)
+		fde_add(fc->fh_parent, fc->ev_write_cb);
 
 	return (0);
 }
@@ -1010,4 +1088,6 @@ comm_udp_write(struct fde_comm *fc, struct fde_comm_udp_frame *fr)
 		fc->udp_w.is_primed = 1;
 		fde_add(fc->fh_parent, fc->ev_udp_write);
 	}
+
+	return (0);
 }

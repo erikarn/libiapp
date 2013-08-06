@@ -19,7 +19,3 @@
 
 * .. same with comm FD / comm UDP FD write
 
-* Figure out why that in my last handful of updates, the "per-second"
-  event scheduling for printing statistics doesn't do it every second
-  anymore.  This is a good indication that I've messed up something
-  delicate.

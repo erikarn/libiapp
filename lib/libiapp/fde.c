@@ -555,10 +555,25 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 		/*
 		 * If it's a non-persist callback, mark it as complete.
 		 */
-		if (! (f->f_flags & FDE_F_PERSIST))
+		if (! (f->f_flags & FDE_F_PERSIST)) {
 			f->is_active = 0;
+			TAILQ_REMOVE(&fh->f_head, f, node);
+		}
 
-		TAILQ_REMOVE(&fh->f_head, f, node);
+		/*
+		 * XXX TODO:
+		 *
+		 * If it's a read/write socket event, we can store away
+		 * the current amount of data available (read) or
+		 * space to write (write).. this may change in parallel
+		 * between the time the kernel posts the event and the
+		 * time we respond to it, but it's better than not knowing
+		 * at all.
+		 */
+
+		/*
+		 * Call the underlying callback.
+		 */
 		if (f->cb)
 			f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
 		else

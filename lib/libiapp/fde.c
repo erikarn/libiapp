@@ -214,7 +214,7 @@ fde_rw_add(struct fde_head *fh, struct fde *f)
 	 * Assume the event is already setup to be added.
 	 */
 	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
-	f->kev.flags |= fde_ev_flags(f, EV_ADD);
+	f->kev.flags |= fde_ev_flags(f, EV_ADD | EV_ENABLE);
 
 	fde_kq_push(fh, &f->kev);
 
@@ -553,9 +553,11 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 
 
 		/*
-		 * Mark the event as inactive and call the callback.
+		 * If it's a non-persist callback, mark it as complete.
 		 */
-		f->is_active = 0;
+		if (! (f->f_flags & FDE_F_PERSIST))
+			f->is_active = 0;
+
 		TAILQ_REMOVE(&fh->f_head, f, node);
 		if (f->cb)
 			f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);

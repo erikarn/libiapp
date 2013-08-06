@@ -122,6 +122,10 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_flags fl,
 			/*
 			 * NOTE_EOF makes the read note act like select/poll,
 			 * where it becomes read-ready for an EOF condition.
+			 *
+			 * Just note that EOF means the other end has hung up;
+			 * there may still be data in the read buffer to
+			 * finish up reading.
 			 */
 			EV_SET(&f->kev, fd, EVFILT_READ,
 			    fde_ev_flags(f, EV_ENABLE),

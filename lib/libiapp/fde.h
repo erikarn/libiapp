@@ -60,6 +60,7 @@ struct fde_head {
 		struct kevent kev_list[FDE_HEAD_MAXEVENTS];
 		int n;
 	} pending;
+	uint32_t f_cb_genid;
 };
 
 typedef enum {
@@ -100,6 +101,7 @@ struct fde {
 	int is_active;
 	struct timeval tv;		/* time to fire this event */
 	void *cbdata;
+	uint32_t f_cb_genid;
 };
 
 /*

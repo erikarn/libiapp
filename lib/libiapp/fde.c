@@ -250,6 +250,7 @@ fde_cb_add(struct fde_head *fh, struct fde *f)
 		return;
 
 	f->is_active = 1;
+	f->f_cb_genid = fh->f_cb_genid;
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
 	TAILQ_INSERT_TAIL(&fh->f_cb_head, f, cb_node);
 }
@@ -398,8 +399,17 @@ fde_cb_runloop(struct fde_head *fh)
 {
 
 	struct fde *f, *f_next;
+	uint32_t cur_genid;
+
+	cur_genid = fh->f_cb_genid;
+	fh->f_cb_genid++;		/* XXX This will wrap; it's ok */
 
 	while ((f = TAILQ_FIRST(&fh->f_cb_head)) != NULL) {
+		/*
+		 * No, don't process callbacks that we've just scheduled.
+		 */
+		if (f->f_cb_genid != cur_genid)
+			break;
 		f_next = TAILQ_NEXT(f, cb_node);
 		fde_delete(fh, f);
 		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
@@ -629,6 +639,13 @@ fde_runloop(struct fde_head *fh, const struct timeval *timeout)
 
 	ts.tv_sec = tv_sleep.tv_sec;
 	ts.tv_nsec = tv_sleep.tv_usec * 1000;
+
+	/*
+	 * If there are any scheduled callbacks, make sure we
+	 * immediately bail out of the kevent loop.
+	 */
+	if (TAILQ_FIRST(&fh->f_cb_head) != NULL)
+		ts.tv_sec = ts.tv_nsec = 0;
 
 	/*
 	 * Run the read/write IO kqueue loop.

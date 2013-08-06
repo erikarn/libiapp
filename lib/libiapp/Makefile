@@ -27,7 +27,7 @@
 #
 
 LIB=iapp
-SRCS=comm.c fde.c
+SRCS=comm.c fde.c debug.c
 NO_MAN=1
 DEBUG_FLAGS=-g
 

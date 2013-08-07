@@ -231,8 +231,10 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 
 	/* Error? Notify the upper layer; finish */
 	if (status != FDE_COMM_CB_COMPLETED) {
+#if 1
 		fprintf(stderr, "%s: FD %d: %p: called; status=%d, retval=%d\n",
 		    __func__, fc->fd, c, status, retval);
+#endif
 		c->state = CONN_STATE_ERROR;
 		c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
 		return;
@@ -396,7 +398,12 @@ thrclt_ev_newconn_cb(int fd, struct fde *f, void *arg, fde_cb_status s)
 	 * .. and schedule another creation event in the future.
 	 */
 	(void) gettimeofday(&tv, NULL);
-	tv.tv_sec += 1;
+	tv.tv_usec += 100000;
+	if (tv.tv_usec > 1000000) {
+		tv.tv_usec -= 1000000;
+		tv.tv_sec += 1;
+	}
+
 	fde_add_timeout(r->h, r->ev_newconn, &tv);
 }
 

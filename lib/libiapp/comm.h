@@ -88,11 +88,15 @@ struct fde_comm {
 
 	/* Events */
 	struct fde *ev_read;
+	struct fde *ev_read_cb;
+
 	struct fde *ev_write;
 	struct fde *ev_write_cb;
+
 	struct fde *ev_accept;
 	struct fde *ev_connect;
 	struct fde *ev_connect_start;
+
 	struct fde *ev_cleanup;
 
 	struct fde *ev_udp_read;
@@ -107,6 +111,8 @@ struct fde_comm {
 	 */
 	struct {
 		int is_active;
+		int is_ready;	/* 1 when the read-ready event has fired */
+		int is_read;	/* have we scheduled the read event? */
 		char *buf;	/* buffer to read into */
 		int len;	/* buffer length */
 		comm_read_cb *cb;

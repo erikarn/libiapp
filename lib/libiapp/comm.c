@@ -148,11 +148,33 @@ fde_comm_udp_free(struct fde_comm *fc, struct fde_comm_udp_frame *fr)
 }
 
 /*
+ * IO read ready - set the relevant bit; if there's a read
+ * ongoing we schedule that callback.
+ */
+static void
+comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
+{
+	struct fde_comm *c = arg;
+
+	c->r.is_ready = 1;
+	if (! c->r.is_active)
+		return;
+
+	/*
+	 * This schedules the actual IO callback to occur.
+	 * That way if we become write ready but we haven't
+	 * yet been scheduled for write, we will just wait.
+	 */
+	fde_add(c->fh_parent, c->ev_read_cb);
+}
+
+
+/*
  * Handle a read IO event.  This is just for socket reads; not
  * for accept.
  */
 static void
-comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
+comm_cb_read_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 {
 	int ret;
 	struct fde_comm *c = arg;
@@ -163,6 +185,7 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		c->r.is_active = 0;
 		c->r.cb(fd, c, c->r.cbdata, FDE_COMM_CB_CLOSING, 0);
 		fde_delete(c->fh_parent, c->ev_read);
+		c->r.is_read = c->r.is_ready = 0;
 		if (comm_is_close_ready(c)) {
 			comm_start_cleanup(c);
 			return;
@@ -175,11 +198,12 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 		    c,
 		    fd);
 		fde_delete(c->fh_parent, c->ev_read);
+		c->r.is_read = c->r.is_ready = 0;
 		return;
 	}
 
 	/* XXX validate that there's actually a buffer, len and callback */
-	ret = read(fd, c->r.buf, c->r.len);
+	ret = read(c->fd, c->r.buf, c->r.len);
 
 	/* If it's something we can restart, do so */
 	if (ret < 0) {
@@ -206,8 +230,10 @@ comm_cb_read(int fd, struct fde *f, void *arg, fde_cb_status status)
 	/*
 	 * If we hit an error or EOF, we stop reading.
 	 */
-	if (s != FDE_COMM_CB_COMPLETED)
+	if (s != FDE_COMM_CB_COMPLETED) {
 		fde_delete(c->fh_parent, c->ev_read);
+		c->r.is_read = c->r.is_ready = 0;
+	}
 
 	/*
 	 * And now, the callback.
@@ -435,8 +461,12 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 * as the callback API guarantees that we can do this.
 	 * (Note: it's not guaranteed for freeing IO FDEs from within
 	 * an IO callback!)
+	 *
+	 * XXX All of these should be inactive at this point; maybe
+	 * I should make fde_free() complain loudly if it's active!
 	 */
 	fde_free(c->fh_parent, c->ev_read);
+	fde_free(c->fh_parent, c->ev_read_cb);
 	fde_free(c->fh_parent, c->ev_write);
 	fde_free(c->fh_parent, c->ev_write_cb);
 	fde_free(c->fh_parent, c->ev_accept);
@@ -772,6 +802,10 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	if (fc->ev_read == NULL)
 		goto cleanup;
 
+	fc->ev_read_cb = fde_create(fh, -1, FDE_T_CALLBACK, 0, comm_cb_read_cb, fc);
+	if (fc->ev_read_cb == NULL)
+		goto cleanup;
+
 	fc->ev_write = fde_create(fh, fd, FDE_T_WRITE, FDE_F_PERSIST, comm_cb_write, fc);
 	if (fc->ev_write == NULL)
 		goto cleanup;
@@ -815,6 +849,8 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 cleanup:
 	if (fc->ev_read)
 		fde_free(fh, fc->ev_read);
+	if (fc->ev_read_cb)
+		fde_free(fh, fc->ev_read_cb);
 	if (fc->ev_write)
 		fde_free(fh, fc->ev_write);
 	if (fc->ev_write_cb)
@@ -875,6 +911,33 @@ comm_close(struct fde_comm *fc)
 	 */
 
 	/*
+	 * XXX this just indicates to me that I need to create some
+	 * generic-ish API for each of the IO types, as I'll have to
+	 * special case _each_ of these for read/write udp, then
+	 * accept, etc.. whenever they're eventually modified to
+	 * use EV_PERSIST.
+	 */
+
+	/*
+	 * Now, since I've removed their IO - if there's an active
+	 * transaction, schedule the callback.  It'll pick up that
+	 * things are closing.
+	 */
+	if (fc->r.is_active) {
+		fde_add(fc->fh_parent, fc->ev_read_cb);
+	} else if (fc->r.is_read) {
+		fde_delete(fc->fh_parent, fc->ev_read);
+		fc->r.is_read = 0;
+	}
+
+	if (fc->w.is_active) {
+		fde_add(fc->fh_parent, fc->ev_write_cb);
+	} else if (fc->w.is_write) {
+		fde_delete(fc->fh_parent, fc->ev_write);
+		fc->w.is_write = 0;
+	}
+
+	/*
 	 * Check to see if there's any pending IO.  If there is,
 	 * let it complete (for now) - we'll later on add some
 	 * stuff to abort IO that we can.
@@ -916,10 +979,23 @@ comm_read(struct fde_comm *fc, char *buf, int len, comm_read_cb *cb,
 	fc->r.len = len;
 
 	/*
+	 * We're now active!
+	 */
+	fc->r.is_active = 1;
+
+	/*
 	 * Begin doing read IO.
 	 */
-	fde_add(fc->fh_parent, fc->ev_read);
-	fc->r.is_active = 1;
+	if (! fc->r.is_read) {
+		fc->r.is_read = 1;
+		fde_add(fc->fh_parent, fc->ev_read);
+	}
+
+	/*
+	 * Are we already ready? Do a read.
+	 */
+	if (fc->r.is_ready)
+		fde_add(fc->fh_parent, fc->ev_read_cb);
 
 	return (1);
 }

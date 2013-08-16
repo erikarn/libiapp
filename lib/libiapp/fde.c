@@ -198,6 +198,7 @@ fde_kq_push(struct fde_head *fh, struct kevent *k)
 {
 	int ret;
 
+#if 1
 	/*
 	 * If it's full; let's flush it out
 	 */
@@ -205,6 +206,13 @@ fde_kq_push(struct fde_head *fh, struct kevent *k)
 
 	memcpy(&fh->pending.kev_list[fh->pending.n], k, sizeof(struct kevent));
 	fh->pending.n++;
+#else
+	ret = kevent(fh->kqfd, k, 1, NULL, 0, NULL);
+	if (ret < 0) {
+		warn("%s: kevent", __func__);
+		/* XXX Error handling? */
+	}
+#endif
 }
 
 static void

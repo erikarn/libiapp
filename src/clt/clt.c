@@ -68,6 +68,7 @@ struct conn {
 	struct fde *ev_cleanup;
 	conn_state_t state;
 	uint64_t total_read, total_written;
+	uint64_t write_close_thr;
 	struct {
 		char *buf;
 		int size;
@@ -95,6 +96,8 @@ struct clt_app {
 	char *remote_host;
 	int remote_port;
 	uint64_t total_read, total_written;
+	uint64_t total_opened;
+	uint64_t total_closed;
 	TAILQ_HEAD(, conn) conn_list;
 };
 
@@ -149,6 +152,8 @@ conn_close(struct conn *c)
 	comm_close(c->comm);
 	c->comm = NULL;
 
+	c->parent->total_closed++;
+
 	/*
 	 * The rest of close will occur once the close handler is called.
 	 */
@@ -181,6 +186,14 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	/* Update write statistics - local and parent app */
 	c->total_written += nwritten;
 	c->parent->total_written += nwritten;
+
+	/*
+	 * If the threshold value is set, bail out if we reach it.
+	 */
+	if (c->write_close_thr != 0 && c->total_written > c->write_close_thr) {
+		conn_close(c);
+		return;
+	}
 
 	/* Did we write the whole buffer? If not, error */
 	if (nwritten != c->w.size) {
@@ -250,6 +263,9 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 	if (c->state != CONN_STATE_RUNNING)
 		return;
 
+	/* Total successfully opened */
+	c->parent->total_opened++;
+
 	comm_write(c->comm, c->w.buf, c->w.size, conn_write_cb, c);
 }
 
@@ -305,6 +321,9 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 
 	c->cb.cb = cb;
 	c->cb.cbdata = cbdata;
+
+	/* If there's a threshold for closing; set it */
+	c->write_close_thr = random() % 10485760;
 
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
@@ -413,16 +432,20 @@ thrclt_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
 	struct clt_app *r = arg;
 	struct timeval tv;
 
-	fprintf(stderr, "%s: [%d]: %d clients; TX=%lld bytes, RX=%lld bytes\n",
+	fprintf(stderr, "%s: [%d]: %d clients; new=%lld, closed=%lld, TX=%lld bytes, RX=%lld bytes\n",
 	    __func__,
 	    r->app_id,
 	    r->num_clients,
+	    (unsigned long long) r->total_opened,
+	    (unsigned long long) r->total_closed,
 	    (unsigned long long) r->total_written,
 	    (unsigned long long) r->total_read);
 
 	/* Blank this out, so we get per-second stats */
 	r->total_read = 0;
 	r->total_written = 0;
+	r->total_opened = 0;
+	r->total_closed = 0;
 
 	/*
 	 * Schedule for another second from now.

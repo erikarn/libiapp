@@ -41,6 +41,7 @@
 
 #include <netinet/in.h>
 
+#include "netbuf.h"
 #include "fde.h"
 #include "comm.h"
 
@@ -296,7 +297,9 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 	/*
 	 * Write out from the current buffer position.
 	 */
-	ret = write(c->fd, c->w.buf + c->w.offset, c->w.len - c->w.offset);
+	ret = write(c->fd,
+	    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
+	    c->w.len - c->w.offset);
 //	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
 
 	/*
@@ -1001,8 +1004,8 @@ comm_read(struct fde_comm *fc, char *buf, int len, comm_read_cb *cb,
 }
 
 int
-comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
-    void *cbdata)
+comm_write(struct fde_comm *fc, struct iapp_netbuf *nb,
+    int nb_start_offset, int len, comm_write_cb *cb, void *cbdata)
 {
 
 //	fprintf(stderr, "%s: called; len=%d\n", __func__, len);
@@ -1017,7 +1020,8 @@ comm_write(struct fde_comm *fc, char *buf, int len, comm_write_cb *cb,
 	 */
 	fc->w.cb = cb;
 	fc->w.cbdata = cbdata;
-	fc->w.buf = buf;
+	fc->w.nb = nb;
+	fc->w.nb_start_offset = nb_start_offset;
 	fc->w.len = len;
 	fc->w.offset = 0;
 

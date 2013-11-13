@@ -44,6 +44,7 @@
 #include <arpa/inet.h>
 
 #include "fde.h"
+#include "netbuf.h"
 #include "comm.h"
 
 struct clt_app;
@@ -74,8 +75,7 @@ struct conn {
 		int size;
 	} r;
 	struct {
-		char *buf;
-		int size;
+		struct iapp_netbuf *nb;
 	} w;
 	struct {
 		conn_owner_update_cb *cb;
@@ -119,8 +119,8 @@ conn_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 
 	if (c->r.buf)
 		free(c->r.buf);
-	if (c->w.buf)
-		free(c->w.buf);
+	if (c->w.nb)
+		iapp_netbuf_free(c->w.nb);
 	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c);
 }
@@ -196,11 +196,11 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	}
 
 	/* Did we write the whole buffer? If not, error */
-	if (nwritten != c->w.size) {
+	if (nwritten != iapp_netbuf_size(c->w.nb)) {
 		fprintf(stderr, "%s: %p: nwritten (%d) != size (%d)\n",
 		    __func__,
 		    c,
-		    c->w.size,
+		    iapp_netbuf_size(c->w.nb),
 		    nwritten);
 		c->state = CONN_STATE_ERROR;
 		c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
@@ -208,9 +208,9 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	}
 
 	/*
-	 * Write some more data
+	 * Write some more data - the whole netbuf (again)
 	 */
-	comm_write(c->comm, c->w.buf, c->w.size, conn_write_cb, c);
+	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 }
 
 /*
@@ -266,7 +266,7 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 	/* Total successfully opened */
 	c->parent->total_opened++;
 
-	comm_write(c->comm, c->w.buf, c->w.size, conn_write_cb, c);
+	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 }
 
 struct conn *
@@ -274,6 +274,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 {
 	struct conn *c;
 	int i;
+	char *buf;
 
 	c = calloc(1, sizeof(*c));
 	if (c == NULL) {
@@ -289,18 +290,18 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->w.size = r->max_io_size;
-	c->w.buf = malloc(c->r.size);
-	if (c->w.buf == NULL) {
-		warn("%s: malloc", __func__);
+	c->w.nb = iapp_netbuf_alloc(r->max_io_size);
+	if (c->w.nb == NULL) {
+		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
 		free(c);
 		return (NULL);
 	}
 
-	/* Pre-populate */
-	for (i = 0; i < c->w.size; i++) {
-		c->w.buf[i] = (i % 10) + '0';
+	/* Pre-populate with some data */
+	buf = iapp_netbuf_buf_nonconst(c->w.nb);
+	for (i = 0; i < iapp_netbuf_size(c->w.nb); i++) {
+		buf[i] = (i % 10) + '0';
 	}
 
 	/* Create an AF_INET socket */
@@ -310,7 +311,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		warn("%s: socket", __func__);
 		free(c);
 		free(c->r.buf);
-		free(c->w.buf);
+		iapp_netbuf_free(c->w.nb);
 		return (NULL);
 	}
 	c->parent = r;

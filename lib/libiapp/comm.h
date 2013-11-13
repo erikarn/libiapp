@@ -126,9 +126,10 @@ struct fde_comm {
 		int is_active;
 		int is_ready;	/* 1 when the write-ready event has fired */
 		int is_write;	/* have we scheduled the write event? */
-		char *buf;
-		int len;
+		struct iapp_netbuf *nb;
+		int nb_start_offset;	/* starting point _inside_ the netbuf */
 		int offset;
+		int len;
 		comm_write_cb *cb;
 		void *cbdata;
 	} w;
@@ -225,8 +226,8 @@ extern	int comm_read(struct fde_comm *fc, char *buf, int len,
  *
  * The buffer must stay valid for the lifetime of the write.
  */
-extern	int comm_write(struct fde_comm *fc, char *buf, int len,
-	    comm_write_cb *cb, void *cbdata);
+extern	int comm_write(struct fde_comm *fc, struct iapp_netbuf *nb,
+	    int nb_start_offset, int len, comm_write_cb *cb, void *cbdata);
 
 /*
  * Start accept()ing on the given socket.

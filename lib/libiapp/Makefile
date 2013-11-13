@@ -27,7 +27,7 @@
 #
 
 LIB=iapp
-SRCS=comm.c fde.c debug.c netbuf.c
+SRCS=comm.c fde.c debug.c netbuf.c shm_alloc.c
 NO_MAN=1
 DEBUG_FLAGS=-O0 -g
 

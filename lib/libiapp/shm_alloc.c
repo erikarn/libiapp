@@ -118,11 +118,11 @@ cleanup:
 	return (NULL);
 }
 
-void *
+struct shm_alloc_allocation *
 shm_alloc_alloc(size_t size)
 {
-	void *p = NULL;
 	struct shm_alloc_slab *sh;
+	struct shm_alloc_allocation *sa = NULL;
 
 	pthread_mutex_lock(&s_st.l);
 	/* Walk the slab list, look for something free */
@@ -139,17 +139,35 @@ shm_alloc_alloc(size_t size)
 			continue;
 
 		/* There is enough space, so use it */
-		p = (sh->shm_m) + sh->shm_curofs;
+
+		/*
+		 * Allocate the state node; if we fail, don't
+		 * bother finishing the shared memory allocation.
+		 */
+		sa = malloc(sizeof(*sa));
+		if (sa == NULL) {
+			warn("%s: malloc failed", __func__);
+			return (NULL);
+		}
+
+		/* OK, we can finish the allocation */
+
+		sa->sha_fd = sh->shm_fd;
+		sa->sha_offset = sh->shm_curofs;
+		sa->sha_len = size;
+		sa->sha_ptr = (sh->shm_m) + sh->shm_curofs;
+
+		/* And bump the allocation offset along */
 		sh->shm_curofs += size;
 		break;
 	}
 
 	pthread_mutex_unlock(&s_st.l);
-	return (p);
+	return (sa);
 }
 
 int
-shm_alloc_free(void *p, size_t size)
+shm_alloc_free(struct shm_alloc_allocation *sa)
 {
 
 	/* XXX ignore for now */

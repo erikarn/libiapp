@@ -35,10 +35,20 @@ struct shm_alloc_slab {
 	off_t shm_curofs;
 };
 
+/*
+ * This represents a shared memory allocation.
+ */
+struct shm_alloc_allocation {
+	int sha_fd;
+	off_t sha_offset;
+	size_t sha_len;
+	char *sha_ptr;
+};
+
 extern	void shm_alloc_init(size_t max_size, size_t slab_size, int do_mlock);
 extern	struct shm_alloc_slab * shm_alloc_new_slab(size_t size, int do_mlock);
 
-extern	void * shm_alloc_alloc(size_t size);
-extern	int shm_alloc_free(void *p, size_t size);
+extern	struct shm_alloc_allocation * shm_alloc_alloc(size_t size);
+extern	int shm_alloc_free(struct shm_alloc_allocation *);
 
 #endif	/* __LIBIAPP_SHM_ALLOC_H__ */

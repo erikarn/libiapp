@@ -310,6 +310,27 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 		if (ret == 0)
 			ret = sbytes;
 
+		/*
+		 * XXX TOTALLY INCORRECT HANDLING HERE!
+		 *
+		 * This works fine for my static workload where I don't
+		 * close/free pages, but! Sendfile is just referencing
+		 * that underlying region and shoveling it into an mbuf.
+		 * It's not copying anything.  So I absolutely need
+		 * notification that the data has been consumed from the
+		 * socket buffer so I know how much data to free!
+		 *
+		 * There's no notification mechanism like this yet.
+		 * Sendfile immediately returns once it has queued
+		 * the data.
+		 *
+		 * Because of this, userland can quite happily just
+		 * recycle the memory region and fill it with other
+		 * data before we get a chance to send it out.
+		 *
+		 * So don't try to use this at home.  You'll get burnt.
+		 */
+
 	} else {
 		/*
 		 * Write out from the current buffer position.

@@ -1,6 +1,13 @@
 #ifndef	__NETBUF_H__
 #define	__NETBUF_H__
 
+
+typedef enum {
+	NB_ALLOC_NONE		= 0,
+	NB_ALLOC_MALLOC,
+	NB_ALLOC_POSIXSHM,
+} netbuf_alloc_type;
+
 /*
  * Representation of a single network buffer entry.
  *
@@ -11,8 +18,10 @@
  * individual netbufs.
  */
 struct iapp_netbuf {
+	struct shm_alloc_allocation *sa;
 	char *bufptr;
 	int buf_size;
+	netbuf_alloc_type nb_type;
 };
 
 extern	void iapp_netbuf_init(void);

@@ -41,6 +41,7 @@
 
 #include <netinet/in.h>
 
+#include "shm_alloc.h"
 #include "netbuf.h"
 #include "fde.h"
 #include "comm.h"
@@ -294,13 +295,30 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 		return;
 	}
 
-	/*
-	 * Write out from the current buffer position.
-	 */
-	ret = write(c->fd,
-	    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
-	    c->w.len - c->w.offset);
-//	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
+	if (c->w.nb->nb_type == NB_ALLOC_POSIXSHM) {
+		off_t sbytes = 0;
+		ret = sendfile(
+		    c->w.nb->sa->sha_fd,
+		    c->fd,
+		    c->w.nb->sa->sha_offset +
+		        c->w.nb_start_offset +
+		        c->w.offset,
+		    c->w.len - c->w.offset,
+		    NULL,
+		    &sbytes,
+		    SF_NODISKIO);
+		if (ret == 0)
+			ret = sbytes;
+
+	} else {
+		/*
+		 * Write out from the current buffer position.
+		 */
+		ret = write(c->fd,
+		    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
+		    c->w.len - c->w.offset);
+	}
+	//	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
 
 	/*
 	 * XXX TODO: figure out why occasionally I'll see EAGAIN if the

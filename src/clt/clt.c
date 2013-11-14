@@ -44,6 +44,7 @@
 #include <arpa/inet.h>
 
 #include "fde.h"
+#include "shm_alloc.h"
 #include "netbuf.h"
 #include "comm.h"
 
@@ -323,8 +324,10 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 	c->cb.cb = cb;
 	c->cb.cbdata = cbdata;
 
+#if 0
 	/* If there's a threshold for closing; set it */
 	c->write_close_thr = random() % 10485760;
+#endif
 
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
@@ -521,6 +524,10 @@ main(int argc, const char *argv[])
 	bufsize = atoi(argv[4]);
 	rem_ip = strdup(argv[5]);
 	rem_port = atoi(argv[6]);
+
+	/* XXX these should be done as part of a global setup */
+	iapp_netbuf_init();
+	shm_alloc_init(nthreads*nconns*bufsize, nthreads*nconns*bufsize, 0);
 
 	/* Allocate thread pool */
 	rp = calloc(nthreads, sizeof(struct clt_app));

@@ -41,28 +41,46 @@
 #include <netinet/in.h>
 
 #include "fde.h"
+#include "shm_alloc.h"
+#include "netbuf.h"
 #include "comm.h"
 
 #define	NUM_THREADS		2
 
 #define	IO_SIZE			16384
 
+#define	MAX_NUM_CONNS		1024
+
+//#define	DO_DEBUG		1
+
 struct thr;
 struct conn;
+
+typedef enum {
+	CONN_STATE_NONE,
+	CONN_STATE_CONNECTING,
+	CONN_STATE_RUNNING,
+	CONN_STATE_ERROR,
+	CONN_STATE_CLOSING,
+	CONN_STATE_FREEING
+} conn_state_t;
 
 struct conn {
 	int fd;
 	struct thr *parent;
 	TAILQ_ENTRY(conn) node;
-	int is_closing;
-	int close_called;
-	int is_cleanup;
 	struct fde_comm *comm;
 	struct fde *ev_cleanup;
+	conn_state_t state;
 	struct {
 		char *buf;
 		int size;
 	} r;
+	struct {
+		struct iapp_netbuf *nb;
+	} w;
+	uint64_t total_read, total_written;
+	uint64_t write_close_thr;
 };
 
 struct thr {
@@ -71,6 +89,8 @@ struct thr {
 	struct fde_head *h;
 	struct fde_comm *comm_listen;
 	TAILQ_HEAD(, conn) conn_list;
+	uint64_t total_read, total_written;
+	uint64_t total_opened, total_closed;
 };
 
 static int
@@ -139,7 +159,7 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	struct conn *c = arg;
 
 	/* Time to tidy up! */
-#if 0
+#ifdef DO_DEBUG
 	fprintf(stderr, "%s: %p: freeing\n", __func__, c);
 #endif
 
@@ -153,6 +173,7 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->parent->h, c->ev_cleanup);
 	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c->r.buf);
+	iapp_netbuf_free(c->w.nb);
 	free(c);
 }
 
@@ -161,26 +182,57 @@ client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
 {
 	struct conn *c = arg;
 
-#if 0
+#ifdef DO_DEBUG
 	fprintf(stderr, "%s: FD %d: %p: close called\n", __func__, fd, c);
 #endif
 	/* NULL this - it'll be closed for us when this routine completes */
 	c->comm = NULL;
 
 	/* Schedule the actual cleanup */
-	if (c->is_cleanup == 0) {
-		fde_add(c->parent->h, c->ev_cleanup);
-		c->is_cleanup = 1;
-	}
+	/* XXX should ensure we only call this once */
+	fde_add(c->parent->h, c->ev_cleanup);
+}
+/*
+ * Initiate shutdown of a given conn.
+ *
+ * This should be called from the owner, as there's no notification
+ * path for this.
+ */
+static void
+conn_close(struct conn *c)
+{
+
+	if (c->state == CONN_STATE_CLOSING)
+		return;
+
+#ifdef DO_DEBUG
+	fprintf(stderr, "%s: %p: called\n", __func__, c);
+#endif
+
+	c->state = CONN_STATE_CLOSING;
+
+	/* Call comm_close(); when IO completes we'll get notified */
+	/*
+	 * The alternative is to track when we're writing and if we
+	 * are, just wait until we're done
+	 */
+	comm_close(c->comm);
+	c->comm = NULL;
+
+	c->parent->total_closed++;
+
+	/*
+	 * The rest of close will occur once the close handler is called.
+	 */
 }
 
-static void
+void
 client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
     int retval)
 {
 	struct conn *c = arg;
 
-#if 0
+#ifdef DO_DEBUG
 	fprintf(stderr, "%s: FD %d: %p: s=%d, ret=%d\n",
 	    __func__,
 	    fd,
@@ -189,16 +241,11 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	    retval);
 #endif
 
-	/* Error or EOF? Begin the close process */
-	if (s != FDE_COMM_CB_COMPLETED) {
-		c->is_closing = 1;
-	}
-
 	/*
-	 * If we're closing, do a comm_close() and then wait until we
+	 * If we've hit an error, do a comm_close() and then wait until we
 	 * get notification for that.
 	 */
-	if (c->is_closing && (c->close_called == 0)) {
+	if (s != FDE_COMM_CB_COMPLETED) {
 		if (s != FDE_COMM_CB_EOF) {
 			fprintf(stderr, "%s: %p: FD %d: error; status=%d errno=%d\n",
 			    __func__,
@@ -207,8 +254,7 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 			    s,
 			    errno);
 		}
-		c->close_called = 1;
-		comm_close(fc);
+		conn_close(c);
 		return;
 	}
 
@@ -216,10 +262,73 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	(void) comm_read(c->comm, c->r.buf, c->r.size, client_read_cb, c);
 }
 
+static void
+conn_write_cb(int fd, struct fde_comm *fc, void *arg,
+    fde_comm_cb_status status, int nwritten)
+{
+	struct conn *c = arg;
+
+#ifdef DO_DEBUG
+	fprintf(stderr, "%s: %p: called; status=%d, retval=%d\n",
+	    __func__, c, status, nwritten);
+#endif
+
+	/*
+	 * Not running? Skip.
+	 */
+	if (c->state != CONN_STATE_RUNNING)
+		return;
+
+	/* Any error? Transition; notify upper layer */
+	if (status != FDE_COMM_CB_COMPLETED) {
+		c->state = CONN_STATE_ERROR;
+		conn_close(c);
+		return;
+	}
+
+	/* Update write statistics - local and parent app */
+	c->total_written += nwritten;
+	c->parent->total_written += nwritten;
+
+	/*
+	 * If the threshold value is set, bail out if we reach it.
+	 */
+	if (c->write_close_thr != 0 && c->total_written > c->write_close_thr) {
+#ifdef	DO_DEBUG
+		fprintf(stderr, "%s: %p: overflowed; finished\n",
+		    __func__,
+		    c);
+#endif
+		conn_close(c);
+		return;
+	}
+
+	/* Did we write the whole buffer? If not, error */
+	if (nwritten != iapp_netbuf_size(c->w.nb)) {
+		fprintf(stderr, "%s: %p: nwritten (%d) != size (%d)\n",
+		    __func__,
+		    c,
+		    iapp_netbuf_size(c->w.nb),
+		    nwritten);
+		c->state = CONN_STATE_ERROR;
+		return;
+	}
+
+#ifdef	DO_DEBUG
+	fprintf(stderr, "%s: %p: another write!\n", __func__, c);
+#endif
+	/*
+	 * Write some more data - the whole netbuf (again)
+	 */
+	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
+}
+
 struct conn *
 conn_new(struct thr *r, int fd)
 {
 	struct conn *c;
+	char *buf;
+	int i;
 
 	c = calloc(1, sizeof(*c));
 	if (c == NULL) {
@@ -235,17 +344,39 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
+	c->w.nb = iapp_netbuf_alloc(IO_SIZE);
+	if (c->w.nb == NULL) {
+		warn("%s: iapp_netbuf_alloc", __func__);
+		free(c->r.buf);
+		free(c);
+		return (NULL);
+	}
+
+	/* Pre-populate with some data */
+	buf = iapp_netbuf_buf_nonconst(c->w.nb);
+	for (i = 0; i < iapp_netbuf_size(c->w.nb); i++) {
+		buf[i] = (i % 10) + '0';
+	}
+
 	c->fd = fd;
 	c->parent = r;
 	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
 	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
 	    client_ev_cleanup_cb, c);
+	c->state = CONN_STATE_RUNNING;
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
+#if 0
 	/*
 	 * Start reading!
 	 */
 	(void) comm_read(c->comm, c->r.buf, c->r.size, client_read_cb, c);
+#endif
+
+	/*
+	 * Start writing!
+	 */
+	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 
 	return (c);
 }
@@ -313,6 +444,8 @@ main(int argc, const char *argv[])
 		perror("listenfd");
 	}
 
+	iapp_netbuf_init();
+	shm_alloc_init(NUM_THREADS*MAX_NUM_CONNS*IO_SIZE, NUM_THREADS*MAX_NUM_CONNS*IO_SIZE, 0);
 
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {

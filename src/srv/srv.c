@@ -308,7 +308,7 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		fprintf(stderr, "%s: %p: nwritten (%d) != size (%d)\n",
 		    __func__,
 		    c,
-		    iapp_netbuf_size(c->w.nb),
+		    (int) iapp_netbuf_size(c->w.nb),
 		    nwritten);
 		c->state = CONN_STATE_ERROR;
 		return;

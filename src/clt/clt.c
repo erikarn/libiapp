@@ -214,6 +214,27 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 }
 
+static void
+conn_read_cb(int fd, struct fde_comm *cb, void *arg, fde_comm_cb_status s,
+    int retval)
+{
+	struct conn *c = arg;
+
+	if (s != FDE_COMM_CB_COMPLETED) {
+		if (s != FDE_COMM_CB_EOF)
+			fprintf(stderr, "%s: non-EOF error?\n", __func__);
+		conn_close(c);
+		return;
+	}
+
+	if (retval > 0) {
+		c->total_read += retval;
+		c->parent->total_read += retval;
+	}
+
+	comm_read(c->comm, c->r.buf, c->r.size, conn_read_cb, c);
+}
+
 /*
  * Close callback - the close has finished; schedule the
  * rest of object tidyup.
@@ -267,7 +288,8 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 	/* Total successfully opened */
 	c->parent->total_opened++;
 
-	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
+	comm_read(c->comm, c->r.buf, c->r.size, conn_read_cb, c);
+//	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 }
 
 struct conn *

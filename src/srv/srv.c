@@ -45,11 +45,11 @@
 #include "netbuf.h"
 #include "comm.h"
 
-#define	NUM_THREADS		2
+#define	NUM_THREADS		4ULL
 
-#define	IO_SIZE			16384
+#define	IO_SIZE			16384ULL
 
-#define	MAX_NUM_CONNS		1024
+#define	MAX_NUM_CONNS		32768ULL
 
 //#define	DO_DEBUG		1
 

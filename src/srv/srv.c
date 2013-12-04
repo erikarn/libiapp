@@ -360,6 +360,19 @@ conn_new(struct thr *r, int fd)
 		buf[i] = (i % 10) + '0';
 	}
 
+	/*
+	 * Limit the send size to one buffer for now.
+	 *
+	 * This isn't optimal but until we queue multiple buffers
+	 * via sendfile, we will end up queueing the same memory region
+	 * over and over again via different mbufs to the same socket
+	 * and that isn't at all useful or correct.
+	 *
+	 * Once the shm allocator handles returning buffers, we can
+	 * modify the transmit path to allocate buffers as required and
+	 * then keep up to two in flight.  Then we can just remove
+	 * this limit.
+	 */
 	sn = IO_SIZE;
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sn, sizeof(sn)) < 0)
 		warn("%s: setsockopt(SO_SNDBUF)", __func__);

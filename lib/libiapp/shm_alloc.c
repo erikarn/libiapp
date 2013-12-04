@@ -11,36 +11,35 @@
 
 #include "shm_alloc.h"
 
-struct shm_alloc_state s_st;
-
 void
-shm_alloc_init(size_t max_size, size_t slab_size, int do_mlock)
+shm_alloc_init(struct shm_alloc_state *sm, size_t max_size, size_t slab_size,
+	    int do_mlock)
 {
 	struct shm_alloc_slab *sh;
 
-	bzero(&s_st, sizeof(&s_st));
+	bzero(sm, sizeof(*sm));
 
 	/*
 	 * Initial setup!
 	 */
-	TAILQ_INIT(&s_st.slab_list);
-	s_st.max_size = max_size;
-	s_st.slab_size = slab_size;
-	s_st.do_mlock = do_mlock;
+	TAILQ_INIT(&sm->slab_list);
+	sm->max_size = max_size;
+	sm->slab_size = slab_size;
+	sm->do_mlock = do_mlock;
 
-	pthread_mutex_init(&s_st.l, NULL);
+	pthread_mutex_init(&sm->l, NULL);
 
 	/*
 	 * Allocate our first slab.  If it fails, it's okay,
 	 * we'll just do this at the first allocation.
 	 */
-	pthread_mutex_lock(&s_st.l);
-	(void) shm_alloc_new_slab(slab_size, do_mlock);
-	pthread_mutex_unlock(&s_st.l);
+	pthread_mutex_lock(&sm->l);
+	(void) shm_alloc_new_slab(sm, slab_size, do_mlock);
+	pthread_mutex_unlock(&sm->l);
 }
 
 struct shm_alloc_slab *
-shm_alloc_new_slab(size_t size, int do_mlock)
+shm_alloc_new_slab(struct shm_alloc_state *sm, size_t size, int do_mlock)
 {
 	int fd;
 	void *m;
@@ -99,7 +98,7 @@ shm_alloc_new_slab(size_t size, int do_mlock)
 		}
 	}
 
-	TAILQ_INSERT_TAIL(&s_st.slab_list, sh, node);
+	TAILQ_INSERT_TAIL(&sm->slab_list, sh, node);
 
 	/* Done! Good */
 	return (0);
@@ -119,14 +118,14 @@ cleanup:
 }
 
 struct shm_alloc_allocation *
-shm_alloc_alloc(size_t size)
+shm_alloc_alloc(struct shm_alloc_state *sm, size_t size)
 {
 	struct shm_alloc_slab *sh;
 	struct shm_alloc_allocation *sa = NULL;
 
-	pthread_mutex_lock(&s_st.l);
+	pthread_mutex_lock(&sm->l);
 	/* Walk the slab list, look for something free */
-	TAILQ_FOREACH(sh, &s_st.slab_list, node) {
+	TAILQ_FOREACH(sh, &sm->slab_list, node) {
 		fprintf(stderr, "%s: curofs=%lld, size=%lld, shm_size=%lld\n",
 		    __func__,
 		    (long long) sh->shm_curofs,
@@ -162,7 +161,7 @@ shm_alloc_alloc(size_t size)
 		break;
 	}
 
-	pthread_mutex_unlock(&s_st.l);
+	pthread_mutex_unlock(&sm->l);
 	return (sa);
 }
 

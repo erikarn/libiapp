@@ -85,6 +85,7 @@ struct conn {
 
 struct thr {
 	pthread_t thr_id;
+	struct shm_alloc_state sm;
 	int thr_sockfd;
 	struct fde_head *h;
 	struct fde_comm *comm_listen;
@@ -329,6 +330,7 @@ conn_new(struct thr *r, int fd)
 	struct conn *c;
 	char *buf;
 	int i;
+	int sn;
 
 	c = calloc(1, sizeof(*c));
 	if (c == NULL) {
@@ -344,7 +346,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(IO_SIZE);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, IO_SIZE);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -357,6 +359,10 @@ conn_new(struct thr *r, int fd)
 	for (i = 0; i < iapp_netbuf_size(c->w.nb); i++) {
 		buf[i] = (i % 10) + '0';
 	}
+
+	sn = IO_SIZE;
+	if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sn, sizeof(sn)) < 0)
+		warn("%s: setsockopt(SO_SNDBUF)", __func__);
 
 	c->fd = fd;
 	c->parent = r;
@@ -445,7 +451,6 @@ main(int argc, const char *argv[])
 	}
 
 	iapp_netbuf_init();
-	shm_alloc_init(NUM_THREADS*MAX_NUM_CONNS*IO_SIZE, NUM_THREADS*MAX_NUM_CONNS*IO_SIZE, 0);
 
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
@@ -453,6 +458,7 @@ main(int argc, const char *argv[])
 		/* Shared single listen FD, multiple threads interested */
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
+		shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 0);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");

@@ -86,6 +86,7 @@ struct conn {
 
 struct clt_app {
 	pthread_t thr_id;
+	struct shm_alloc_state sm;
 	int app_id;
 	int max_io_size;
 	int nconns;
@@ -313,7 +314,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(r->max_io_size);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, r->max_io_size);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -549,7 +550,6 @@ main(int argc, const char *argv[])
 
 	/* XXX these should be done as part of a global setup */
 	iapp_netbuf_init();
-	shm_alloc_init(nthreads*nconns*bufsize, nthreads*nconns*bufsize, 0);
 
 	/* Allocate thread pool */
 	rp = calloc(nthreads, sizeof(struct clt_app));
@@ -568,6 +568,7 @@ main(int argc, const char *argv[])
 		r->max_io_size = bufsize;
 		r->nconns = nconns;
 		r->connrate = connrate;
+		shm_alloc_init(&r->sm, nconns*bufsize, nconns*bufsize, 0);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrclt_new, r) != 0)
 			perror("pthread_create");

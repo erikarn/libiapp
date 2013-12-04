@@ -20,7 +20,7 @@ iapp_netbuf_shutdown(void)
 }
 
 struct iapp_netbuf *
-iapp_netbuf_alloc(size_t minsize)
+iapp_netbuf_alloc(struct shm_alloc_state *sm, size_t minsize)
 {
 	struct iapp_netbuf *n;
 
@@ -39,7 +39,7 @@ iapp_netbuf_alloc(size_t minsize)
 		return (NULL);
 	}
 #else
-	n->sa = shm_alloc_alloc(minsize);
+	n->sa = shm_alloc_alloc(sm, minsize);
 	if (n->sa == NULL) {
 		warn("%s: malloc (buf %d bytes)", __func__, (int) minsize);
 		free(n);

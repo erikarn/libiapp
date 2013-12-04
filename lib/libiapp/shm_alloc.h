@@ -45,10 +45,12 @@ struct shm_alloc_allocation {
 	char *sha_ptr;
 };
 
-extern	void shm_alloc_init(size_t max_size, size_t slab_size, int do_mlock);
-extern	struct shm_alloc_slab * shm_alloc_new_slab(size_t size, int do_mlock);
-
-extern	struct shm_alloc_allocation * shm_alloc_alloc(size_t size);
+extern	void shm_alloc_init(struct shm_alloc_state *sm,
+	    size_t max_size, size_t slab_size, int do_mlock);
+extern	struct shm_alloc_slab * shm_alloc_new_slab(struct shm_alloc_state *sm,
+	    size_t size, int do_mlock);
+extern	struct shm_alloc_allocation * shm_alloc_alloc(struct shm_alloc_state *sm,
+	    size_t size);
 extern	int shm_alloc_free(struct shm_alloc_allocation *);
 
 #endif	/* __LIBIAPP_SHM_ALLOC_H__ */

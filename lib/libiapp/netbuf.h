@@ -25,7 +25,7 @@ struct iapp_netbuf {
 };
 
 extern	void iapp_netbuf_init(void);
-extern	struct iapp_netbuf * iapp_netbuf_alloc(size_t minsize);
+extern	struct iapp_netbuf * iapp_netbuf_alloc(struct shm_alloc_state *sm, size_t minsize);
 extern	void iapp_netbuf_free(struct iapp_netbuf *);
 extern	void iapp_netbuf_shutdown(void);
 

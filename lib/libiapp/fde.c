@@ -74,7 +74,6 @@ fde_ctx_free(struct fde_head *fh)
 static int
 fde_ev_flags(struct fde *f, uint32_t kev_flags)
 {
-	uint32_t fl = kev_flags;
 
 	/*
 	 * For read/write FD events, we either do
@@ -90,7 +89,7 @@ fde_ev_flags(struct fde *f, uint32_t kev_flags)
 		kev_flags |= EV_ONESHOT;
 	}
 
-	return (fl);
+	return (kev_flags);
 }
 
 struct fde *

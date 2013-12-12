@@ -33,6 +33,11 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
+
+/* For thread affinity */
+#include <pthread_np.h>
+#include <sys/cpuset.h>
+
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/event.h>
@@ -45,9 +50,9 @@
 #include "netbuf.h"
 #include "comm.h"
 
-#define	NUM_THREADS		4ULL
+#define	NUM_THREADS		8ULL
 
-#define	IO_SIZE			16384ULL
+#define	IO_SIZE			65536ULL
 
 #define	MAX_NUM_CONNS		32768ULL
 
@@ -467,14 +472,22 @@ main(int argc, const char *argv[])
 
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
+		cpuset_t cp;
+
 		r = &rp[i];
 		/* Shared single listen FD, multiple threads interested */
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
-		shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 0);
+		shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 1);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");
+
+		/* Set affinity */
+		CPU_ZERO(&cp);
+		CPU_SET(i, &cp);
+		if (pthread_setaffinity_np(r->thr_id, sizeof(cpuset_t), &cp) != 0)
+			perror("pthread_setaffinity_np");
 	}
 
 	/* Join */

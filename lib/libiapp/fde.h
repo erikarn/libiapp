@@ -77,7 +77,8 @@ typedef enum {
 	FDE_T_CALLBACK,		/* Immediate callback */
 	FDE_T_SIGNAL,		/* XXX not yet implemented */
 	FDE_T_TIMER,		/* XXX not yet implemented */
-	FDE_T_AIO		/* XXX not yet implemented */
+	FDE_T_AIO,		/* XXX not yet implemented */
+	FDE_T_SENDFILE,
 } fde_type;
 
 typedef enum {

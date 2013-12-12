@@ -2,6 +2,7 @@
 #define	__LIBIAPP_SHM_ALLOC_H__
 
 struct shm_alloc_slab;
+struct shm_alloc_allocation;
 
 /*
  * This represents the allocator state.
@@ -33,16 +34,25 @@ struct shm_alloc_slab {
 	 * we've allocated pages from.
 	 */
 	off_t shm_curofs;
+
+	/*
+	 * This is the current free list state.
+	 */
+	TAILQ_HEAD(, shm_alloc_allocation) free_list;
+	int free_list_cnt;
 };
 
 /*
  * This represents a shared memory allocation.
  */
 struct shm_alloc_allocation {
+	struct shm_alloc_slab *sha_slab;
 	int sha_fd;
 	off_t sha_offset;
 	size_t sha_len;
 	char *sha_ptr;
+	TAILQ_ENTRY(shm_alloc_allocation) node;
+	int sha_isactive;
 };
 
 extern	void shm_alloc_init(struct shm_alloc_state *sm,

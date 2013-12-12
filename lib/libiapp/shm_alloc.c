@@ -8,6 +8,7 @@
 #include <strings.h>
 #include <pthread.h>
 #include <err.h>
+#include <assert.h>
 
 #include "shm_alloc.h"
 
@@ -98,7 +99,12 @@ shm_alloc_new_slab(struct shm_alloc_state *sm, size_t size, int do_mlock)
 		}
 	}
 
+	/* Add it to the list of slabs */
 	TAILQ_INSERT_TAIL(&sm->slab_list, sh, node);
+
+	/* Setup the free list */
+	TAILQ_INIT(&sh->free_list);
+	sh->free_list_cnt = 0;
 
 	/* Done! Good */
 	return (0);
@@ -117,6 +123,80 @@ cleanup:
 	return (NULL);
 }
 
+/*
+ * Add the given allocation to the free list.
+ */
+void
+shm_alloc_add_freelist(struct shm_alloc_state *sm,
+    struct shm_alloc_allocation *sa)
+{
+
+	assert(sa->sha_isactive == 1);
+
+	/* Don't add an inactive entry onto the free list! */
+	if (sa->sha_isactive == 0) {
+		fprintf(stderr,
+		    "%s: %p: putting inactive item on the freelist?\n",
+		    __func__,
+		    sa);
+		return;
+	}
+
+	/* Mark the allocation as inactive */
+	sa->sha_isactive = 0;
+
+	/*
+	 * Add the entry to the head of the list;
+	 * if we're lucky then the next allocation will grab
+	 * it and it'll be cache-hot.
+	 */
+	pthread_mutex_lock(&sm->l);
+	TAILQ_INSERT_HEAD(&sa->sha_slab->free_list, sa, node);
+	sa->sha_slab->free_list_cnt++;
+	/* XXX TODO: also add a top-level free list */
+	pthread_mutex_unlock(&sm->l);
+}
+
+/*
+ * Find a suitable item on the freelist.  Bail out if nothing suitable
+ * is found.
+ *
+ * This assumes the lock is held.
+ */
+struct shm_alloc_allocation *
+shm_alloc_lookup_freelist(struct shm_alloc_state *sm, size_t size)
+{
+	struct shm_alloc_allocation *sa, *sa_found;
+	struct shm_alloc_slab *sh;
+
+	sa_found = NULL;
+
+	/*
+	 * XXX TODO: we should just keep the freelist entries on
+	 * a top-level list too, in order to make this lookup
+	 * quicker!
+	 */
+	TAILQ_FOREACH(sh, &sm->slab_list, node) {
+		TAILQ_FOREACH(sa, &sh->free_list, node) {
+			if (sa->sha_len == size) {
+				sa_found = sa;
+				break;
+			}
+		}
+	}
+
+	/*
+	 * If we found something, pull it off of the free list.
+	 */
+	if (sa_found != NULL) {
+		TAILQ_REMOVE(&sa_found->sha_slab->free_list, sa_found, node);
+		sa_found->sha_slab->free_list_cnt--;
+		sa_found->sha_isactive = 1;
+	}
+
+	return (sa_found);
+}
+
 struct shm_alloc_allocation *
 shm_alloc_alloc(struct shm_alloc_state *sm, size_t size)
 {
@@ -124,6 +204,12 @@ shm_alloc_alloc(struct shm_alloc_state *sm, size_t size)
 	struct shm_alloc_allocation *sa = NULL;
 
 	pthread_mutex_lock(&sm->l);
+
+	/* Check the freelist first */
+	sa = shm_alloc_lookup_freelist(sm, size);
+	if (sa != NULL)
+		goto out;
+
 	/* Walk the slab list, look for something free */
 	TAILQ_FOREACH(sh, &sm->slab_list, node) {
 		fprintf(stderr, "%s: curofs=%lld, size=%lld, shm_size=%lld\n",
@@ -155,12 +241,15 @@ shm_alloc_alloc(struct shm_alloc_state *sm, size_t size)
 		sa->sha_offset = sh->shm_curofs;
 		sa->sha_len = size;
 		sa->sha_ptr = (sh->shm_m) + sh->shm_curofs;
+		sa->sha_isactive = 1;
+		sa->sha_slab = sh;
 
 		/* And bump the allocation offset along */
 		sh->shm_curofs += size;
 		break;
 	}
 
+out:
 	pthread_mutex_unlock(&sm->l);
 	return (sa);
 }

@@ -27,7 +27,7 @@
 #
 
 PROG=srv
-SRCS=srv.c
+SRCS=srv.c conn.c
 CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -Wall -Werror
 LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/
 LDADD=-lpthread -liapp

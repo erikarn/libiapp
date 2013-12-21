@@ -48,6 +48,9 @@
 
 #define	XMIN(x,y)	((x) < (y) ? (x) : (y))
 
+/* Define this for posix shared memory sendfile + kqueue notification path support */
+#undef	POSIX_SHM_SENDFILE
+
 /*
  * This implements the 'socket' logic for sockets, pipes and such.
  * It isn't at all useful for disk IO.
@@ -387,6 +390,7 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 		return;
 	}
 
+#ifdef	POSIX_SHM_SENDFILE
 	if (c->w.nb->nb_type == NB_ALLOC_POSIXSHM) {
 		off_t sbytes = 0;
 		struct sf_hdtr_all shdr;
@@ -444,13 +448,16 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 			c->w.sendfile_pending = 1;
 		}
 	} else {
+#endif
 		/*
 		 * Write out from the current buffer position.
 		 */
 		ret = write(c->fd,
 		    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
 		    c->w.len - c->w.offset);
+#ifdef	POSIX_SHM_SENDFILE
 	}
+#endif
 	//	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
 
 	/*

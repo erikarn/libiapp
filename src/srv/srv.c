@@ -351,7 +351,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(&r->sm, IO_SIZE);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, NB_ALLOC_POSIXSHM, IO_SIZE);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);

@@ -314,8 +314,7 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-#if 0
-	c->w.nb = iapp_netbuf_alloc(&r->sm, r->max_io_size);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, NB_ALLOC_MALLOC, r->max_io_size);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -328,7 +327,6 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 	for (i = 0; i < iapp_netbuf_size(c->w.nb); i++) {
 		buf[i] = (i % 10) + '0';
 	}
-#endif
 
 	/* Create an AF_INET socket */
 	/* XXX should be a method */

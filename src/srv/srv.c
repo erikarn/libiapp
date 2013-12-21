@@ -56,6 +56,8 @@
 
 #define	MAX_NUM_CONNS		32768ULL
 
+#define	IO_TYPE			NB_ALLOC_MALLOC
+
 //#define	DO_DEBUG		1
 
 struct thr;
@@ -351,7 +353,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(&r->sm, NB_ALLOC_POSIXSHM, IO_SIZE);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, IO_TYPE, IO_SIZE);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -478,7 +480,8 @@ main(int argc, const char *argv[])
 		/* Shared single listen FD, multiple threads interested */
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
-		shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 1);
+		if (IO_TYPE == NB_ALLOC_POSIXSHM)
+			shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 1);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");
@@ -487,7 +490,7 @@ main(int argc, const char *argv[])
 		CPU_ZERO(&cp);
 		CPU_SET(i, &cp);
 		if (pthread_setaffinity_np(r->thr_id, sizeof(cpuset_t), &cp) != 0)
-			perror("pthread_setaffinity_np");
+			warn("pthread_setaffinity_np (id %d)", i);
 	}
 
 	/* Join */

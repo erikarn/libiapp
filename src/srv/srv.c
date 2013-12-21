@@ -51,14 +51,6 @@
 #include "comm.h"
 #include "iapp_cpu.h"
 
-#define	NUM_THREADS		8ULL
-
-#define	IO_SIZE			65536ULL
-
-#define	MAX_NUM_CONNS		32768ULL
-
-#define	IO_TYPE			NB_ALLOC_MALLOC
-
 //#define	DO_DEBUG		1
 
 struct thr;
@@ -72,6 +64,14 @@ typedef enum {
 	CONN_STATE_CLOSING,
 	CONN_STATE_FREEING
 } conn_state_t;
+
+struct cfg {
+	int num_threads;
+	int io_size;
+	int max_num_conns;
+	netbuf_alloc_type atype;
+	int port;
+};
 
 struct conn {
 	int fd;
@@ -93,6 +93,7 @@ struct conn {
 
 struct thr {
 	pthread_t thr_id;
+	struct cfg *cfg;
 	struct shm_alloc_state sm;
 	int thr_sockfd;
 	struct fde_head *h;
@@ -346,7 +347,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->r.size = IO_SIZE;
+	c->r.size = r->cfg->io_size;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -354,7 +355,7 @@ conn_new(struct thr *r, int fd)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(&r->sm, IO_TYPE, IO_SIZE);
+	c->w.nb = iapp_netbuf_alloc(&r->sm, r->cfg->atype, r->cfg->io_size);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -381,7 +382,7 @@ conn_new(struct thr *r, int fd)
 	 * then keep up to two in flight.  Then we can just remove
 	 * this limit.
 	 */
-	sn = IO_SIZE;
+	sn = r->cfg->io_size;
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sn, sizeof(sn)) < 0)
 		warn("%s: setsockopt(SO_SNDBUF)", __func__);
 
@@ -460,9 +461,20 @@ main(int argc, const char *argv[])
 	int i;
 	int fd;
 	int ncpu;
+	struct cfg srv_cfg;
+
+
+	bzero(&srv_cfg, sizeof(srv_cfg));
+
+	/* Initialise the local config */
+	srv_cfg.num_threads = 2;
+	srv_cfg.io_size = 16384;
+	srv_cfg.max_num_conns = 32768;
+	srv_cfg.atype = NB_ALLOC_MALLOC;
+	srv_cfg.port = 1667;
 
 	/* Allocate thread pool */
-	rp = calloc(NUM_THREADS, sizeof(struct thr));
+	rp = calloc(srv_cfg.num_threads, sizeof(struct thr));
 	if (rp == NULL)
 		perror("malloc");
 
@@ -479,15 +491,26 @@ main(int argc, const char *argv[])
 		exit(127);	/* XXX */
 
 	/* Create listen threads */
-	for (i = 0; i < NUM_THREADS; i++) {
+	for (i = 0; i < srv_cfg.num_threads; i++) {
 		cpuset_t cp;
 
 		r = &rp[i];
 		/* Shared single listen FD, multiple threads interested */
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
-		if (IO_TYPE == NB_ALLOC_POSIXSHM)
-			shm_alloc_init(&r->sm, MAX_NUM_CONNS*IO_SIZE, MAX_NUM_CONNS*IO_SIZE, 1);
+		r->cfg = &srv_cfg;
+
+		/*
+		 * Only allocate the shared memory bits if we need them.
+		 *
+		 * + Allocate the whole lot at once;
+		 * + mlock it.
+		 */
+		if (srv_cfg.atype == NB_ALLOC_POSIXSHM)
+			shm_alloc_init(&r->sm,
+			    srv_cfg.max_num_conns*srv_cfg.io_size,
+			    srv_cfg.max_num_conns*srv_cfg.io_size,
+			    1);
 		TAILQ_INIT(&r->conn_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");

@@ -49,6 +49,7 @@
 #include "shm_alloc.h"
 #include "netbuf.h"
 #include "comm.h"
+#include "iapp_cpu.h"
 
 #define	NUM_THREADS		8ULL
 
@@ -458,6 +459,7 @@ main(int argc, const char *argv[])
 	struct thr *rp, *r;
 	int i;
 	int fd;
+	int ncpu;
 
 	/* Allocate thread pool */
 	rp = calloc(NUM_THREADS, sizeof(struct thr));
@@ -471,6 +473,10 @@ main(int argc, const char *argv[])
 	}
 
 	iapp_netbuf_init();
+
+	ncpu = iapp_get_ncpus();
+	if (ncpu < 0)
+		exit(127);	/* XXX */
 
 	/* Create listen threads */
 	for (i = 0; i < NUM_THREADS; i++) {
@@ -488,7 +494,10 @@ main(int argc, const char *argv[])
 
 		/* Set affinity */
 		CPU_ZERO(&cp);
-		CPU_SET(i, &cp);
+		CPU_SET(i % ncpu, &cp);
+
+		printf("%s: thread id %d -> CPU %d\n", argv[0], i, i % ncpu);
+
 		if (pthread_setaffinity_np(r->thr_id, sizeof(cpuset_t), &cp) != 0)
 			warn("pthread_setaffinity_np (id %d)", i);
 	}

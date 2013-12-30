@@ -135,6 +135,9 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		close(newfd);
 		return;
 	}
+
+	/* Add it to the connection list list */
+	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 }
 
 void *

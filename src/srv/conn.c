@@ -319,8 +319,6 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 	c->cb.cb = cb;
 	c->cb.cbdata = cbdata;
 
-	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
-
 #if 0
 	/*
 	 * Start reading!

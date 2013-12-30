@@ -115,6 +115,28 @@ thrsrv_listenfd(int port)
 	return (fd);
 }
 
+void
+thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
+    int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
+{
+	struct thr *r = arg;
+	struct conn *c;
+
+	if (s != FDE_COMM_CB_COMPLETED) {
+		fprintf(stderr,
+		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
+		    __func__, r, s, errno, newfd);
+		return;
+	}
+
+	/* XXX no callbacks for now */
+	c = conn_new(r, newfd, NULL, NULL);
+	if (c == NULL) {
+		close(newfd);
+		return;
+	}
+}
+
 void *
 thrsrv_new(void *arg)
 {
@@ -126,7 +148,7 @@ thrsrv_new(void *arg)
 	/* Create a listen comm object */
 	r->comm_listen = comm_create(r->thr_sockfd, r->h, NULL, NULL);
 	comm_mark_nonclose(r->comm_listen);
-	(void) comm_listen(r->comm_listen, conn_acceptfd, r);
+	(void) comm_listen(r->comm_listen, thrsrv_acceptfd, r);
 
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {

@@ -335,25 +335,3 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 
 	return (c);
 }
-
-void
-conn_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
-    int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
-{
-	struct thr *r = arg;
-	struct conn *c;
-
-	if (s != FDE_COMM_CB_COMPLETED) {
-		fprintf(stderr,
-		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
-		    __func__, r, s, errno, newfd);
-		return;
-	}
-
-	/* XXX no callbacks for now */
-	c = conn_new(r, newfd, NULL, NULL);
-	if (c == NULL) {
-		close(newfd);
-		return;
-	}
-}

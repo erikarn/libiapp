@@ -77,8 +77,5 @@ struct conn {
 
 extern	struct conn * conn_new(struct thr *r, int fd,
 	    conn_owner_update_cb *cb, void *cbdata);
-extern	void conn_acceptfd(int fd, struct fde_comm *fc, void *arg,
-	    fde_comm_cb_status s, int newfd, struct sockaddr *saddr,
-	    socklen_t slen, int xerrno);
 
 #endif	/* __CONN_H__ */

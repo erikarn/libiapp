@@ -75,6 +75,10 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 		    c);
 	}
 
+	/* Notify owner that I'm about to be freed */
+	if (c->cb.cb)
+		c->cb.cb(c, c->cb.cbdata, CONN_STATE_FREEING);
+
 	fde_free(c->parent->h, c->ev_cleanup);
 	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c->r.buf);
@@ -159,6 +163,11 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 			    s,
 			    errno);
 		}
+
+		/* Notify upper layer about an error */
+		/* XXX not distinguishing between read/write errors? */
+		if (c->cb.cb)
+			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
 		conn_close(c);
 		return;
 	}
@@ -187,6 +196,12 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	/* Any error? Transition; notify upper layer */
 	if (status != FDE_COMM_CB_COMPLETED) {
 		c->state = CONN_STATE_ERROR;
+
+		/* Notify upper layer about an error */
+		/* XXX not distinguishing between read/write errors? */
+		if (c->cb.cb)
+			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
+
 		conn_close(c);
 		return;
 	}
@@ -216,6 +231,13 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		    (int) iapp_netbuf_size(c->w.nb),
 		    nwritten);
 		c->state = CONN_STATE_ERROR;
+
+		/* Notify upper layer about an error */
+		/* XXX not distinguishing between read/write errors? */
+		if (c->cb.cb)
+			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
+
+		conn_close(c);
 		return;
 	}
 

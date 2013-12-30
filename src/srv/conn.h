@@ -80,7 +80,8 @@ struct conn {
 	uint64_t write_close_thr;
 };
 
-extern	struct conn * conn_new(struct thr *r, int fd,
+extern	struct conn * conn_new(struct fde_head *h, struct cfg *cfg,
+	    struct shm_alloc_state *sm, int fd,
 	    conn_owner_update_cb *cb, void *cbdata);
 extern	void conn_close(struct conn *c);
 extern	void conn_set_stats_cb(struct conn *c, conn_owner_stats_update_cb *cb,

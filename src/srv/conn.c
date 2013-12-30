@@ -261,7 +261,8 @@ conn_set_stats_cb(struct conn *c, conn_owner_stats_update_cb *cb, void *cbdata)
 }
 
 struct conn *
-conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
+conn_new(struct fde_head *h, struct cfg *cfg, struct shm_alloc_state *sm,
+    int fd, conn_owner_update_cb *cb, void *cbdata)
 {
 	struct conn *c;
 	char *buf;
@@ -274,7 +275,7 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->r.size = r->cfg->io_size;
+	c->r.size = cfg->io_size;
 	c->r.buf = malloc(c->r.size);
 	if (c->r.buf == NULL) {
 		warn("%s: malloc", __func__);
@@ -282,7 +283,7 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 		return (NULL);
 	}
 
-	c->w.nb = iapp_netbuf_alloc(&r->sm, r->cfg->atype, r->cfg->io_size);
+	c->w.nb = iapp_netbuf_alloc(sm, cfg->atype, cfg->io_size);
 	if (c->w.nb == NULL) {
 		warn("%s: iapp_netbuf_alloc", __func__);
 		free(c->r.buf);
@@ -309,18 +310,18 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 	 * then keep up to two in flight.  Then we can just remove
 	 * this limit.
 	 */
-	sn = r->cfg->io_size;
+	sn = cfg->io_size;
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sn, sizeof(sn)) < 0)
 		warn("%s: setsockopt(SO_SNDBUF)", __func__);
 
 	c->fd = fd;
-	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
-	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
+	c->comm = comm_create(fd, h, client_ev_close_cb, c);
+	c->ev_cleanup = fde_create(h, -1, FDE_T_CALLBACK, 0,
 	    client_ev_cleanup_cb, c);
 	c->state = CONN_STATE_RUNNING;
 
 	/* Link back to the parent fde loop */
-	c->h = r->h;
+	c->h = h;
 
 	/* .. and the callback state for notification */
 	c->cb.cb = cb;

@@ -229,7 +229,7 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 }
 
 struct conn *
-conn_new(struct thr *r, int fd)
+conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 {
 	struct conn *c;
 	char *buf;
@@ -287,6 +287,11 @@ conn_new(struct thr *r, int fd)
 	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
 	    client_ev_cleanup_cb, c);
 	c->state = CONN_STATE_RUNNING;
+
+	/* .. and the callback state for notification */
+	c->cb.cb = cb;
+	c->cb.cbdata = cbdata;
+
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
 
 #if 0
@@ -318,7 +323,8 @@ conn_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		return;
 	}
 
-	c = conn_new(r, newfd);
+	/* XXX no callbacks for now */
+	c = conn_new(r, newfd, NULL, NULL);
 	if (c == NULL) {
 		close(newfd);
 		return;

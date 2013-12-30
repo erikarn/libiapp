@@ -40,6 +40,8 @@ typedef enum {
 	CONN_STATE_FREEING
 } conn_state_t;
 
+typedef void conn_owner_update_cb(struct conn *c, void *arg, conn_state_t newstate);
+
 struct conn {
 	int fd;
 	struct thr *parent;
@@ -47,18 +49,33 @@ struct conn {
 	struct fde_comm *comm;
 	struct fde *ev_cleanup;
 	conn_state_t state;
+
+	/* read state / buffer */
 	struct {
 		char *buf;
 		int size;
 	} r;
+
+	/* write state / buffer */
 	struct {
 		struct iapp_netbuf *nb;
 	} w;
+
+	struct {
+		conn_owner_update_cb *cb;
+		void *cbdata;
+	} cb;
+
+	/* Configuration related information */
+	struct {
+	} cfg;
+
 	uint64_t total_read, total_written;
 	uint64_t write_close_thr;
 };
 
-extern	struct conn * conn_new(struct thr *r, int fd);
+extern	struct conn * conn_new(struct thr *r, int fd,
+	    conn_owner_update_cb *cb, void *cbdata);
 extern	void conn_acceptfd(int fd, struct fde_comm *fc, void *arg,
 	    fde_comm_cb_status s, int newfd, struct sockaddr *saddr,
 	    socklen_t slen, int xerrno);

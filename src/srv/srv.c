@@ -211,7 +211,7 @@ main(int argc, const char *argv[])
 	}
 
 	/* Join */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < srv_cfg.num_threads; i++) {
 		pthread_join(rp[i].thr_id, NULL);
 	}
 

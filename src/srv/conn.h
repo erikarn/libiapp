@@ -77,5 +77,6 @@ struct conn {
 
 extern	struct conn * conn_new(struct thr *r, int fd,
 	    conn_owner_update_cb *cb, void *cbdata);
+extern	void conn_close(struct conn *c);
 
 #endif	/* __CONN_H__ */

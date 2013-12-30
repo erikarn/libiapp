@@ -107,7 +107,7 @@ client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
  * This should be called from the owner, as there's no notification
  * path for this.
  */
-static void
+void
 conn_close(struct conn *c)
 {
 
@@ -168,7 +168,6 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		/* XXX not distinguishing between read/write errors? */
 		if (c->cb.cb)
 			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
-		conn_close(c);
 		return;
 	}
 
@@ -201,8 +200,6 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		/* XXX not distinguishing between read/write errors? */
 		if (c->cb.cb)
 			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
-
-		conn_close(c);
 		return;
 	}
 
@@ -219,6 +216,7 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		    __func__,
 		    c);
 #endif
+		/* XXX should notify the upper layer of this, let it close? */
 		conn_close(c);
 		return;
 	}
@@ -236,8 +234,6 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 		/* XXX not distinguishing between read/write errors? */
 		if (c->cb.cb)
 			c->cb.cb(c, c->cb.cbdata, CONN_STATE_ERROR);
-
-		conn_close(c);
 		return;
 	}
 

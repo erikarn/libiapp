@@ -119,7 +119,11 @@ thrsrv_listenfd(int port)
 static void
 thrsrv_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
 {
-
+	/* Error? Schedule a close. */
+	if (newstate == CONN_STATE_ERROR) {
+		conn_close(c);
+		return;
+	}
 }
 
 void

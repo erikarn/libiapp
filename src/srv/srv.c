@@ -56,8 +56,6 @@
 #include "thr.h"
 #include "conn.h"
 
-//#define	DO_DEBUG		1
-
 static int
 thrsrv_listenfd(int port)
 {

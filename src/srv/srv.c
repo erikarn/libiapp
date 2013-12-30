@@ -32,6 +32,7 @@
 #include <err.h>
 #include <errno.h>
 #include <string.h>
+#include <signal.h>
 #include <pthread.h>
 
 /* For thread affinity */
@@ -172,7 +173,7 @@ main(int argc, const char *argv[])
 	int fd;
 	int ncpu;
 	struct cfg srv_cfg;
-
+	sigset_t ss;
 
 	bzero(&srv_cfg, sizeof(srv_cfg));
 
@@ -182,6 +183,11 @@ main(int argc, const char *argv[])
 	srv_cfg.max_num_conns = 32768;
 	srv_cfg.atype = NB_ALLOC_MALLOC;
 	srv_cfg.port = 1667;
+
+	/* Mark SIGPIPE as an ignore on all threads */
+	sigemptyset(&ss);
+	sigaddset(&ss, SIGPIPE);
+	pthread_sigmask(SIG_BLOCK, &ss, NULL);
 
 	/* Allocate thread pool */
 	rp = calloc(srv_cfg.num_threads, sizeof(struct thr));

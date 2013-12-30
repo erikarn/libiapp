@@ -163,7 +163,10 @@ main(int argc, const char *argv[])
 	if (rp == NULL)
 		perror("malloc");
 
-	/* Create listen socket per thread - using SO_REUSEADDR/SO_REUSEPORT */
+	/*
+	 * Create a single listen FD; we'll create separate conn state
+	 * for each, but it'll be a single listen queue.
+	 */
 	fd = thrsrv_listenfd(1667);
 	if (fd < 0) {
 		perror("listenfd");

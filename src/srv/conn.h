@@ -45,7 +45,6 @@ typedef void conn_owner_stats_update_cb(struct conn *c, void *arg, size_t tx_byt
 
 struct conn {
 	int fd;
-	struct thr *parent;
 	TAILQ_ENTRY(conn) node;
 	struct fde_comm *comm;
 	struct fde *ev_cleanup;

@@ -322,9 +322,6 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 	/* Link back to the parent fde loop */
 	c->h = r->h;
 
-	/* .. and the parent state */
-	c->parent = r;
-
 	/* .. and the callback state for notification */
 	c->cb.cb = cb;
 	c->cb.cbdata = cbdata;

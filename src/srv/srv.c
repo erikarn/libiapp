@@ -39,6 +39,8 @@
 #include <pthread_np.h>
 #include <sys/cpuset.h>
 
+#include <sys/time.h>
+
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/event.h>
@@ -128,7 +130,18 @@ thrsrv_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
 	if (newstate == CONN_STATE_FREEING) {
 		TAILQ_REMOVE(&r->conn_list, c, node);
 		r->total_closed++;
+		r->num_clients--;
 	}
+}
+
+static void
+thrsrv_conn_stats_update_cb(struct conn *c, void *arg, size_t tx_bytes,
+    size_t rx_bytes)
+{
+	struct thr *r = arg;
+
+	r->total_read += rx_bytes;
+	r->total_written += tx_bytes;
 }
 
 void
@@ -151,9 +164,43 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		close(newfd);
 		return;
 	}
+	conn_set_stats_cb(c, thrsrv_conn_stats_update_cb, r);
 
 	/* Add it to the connection list list */
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
+
+	/* number of clients */
+	r->num_clients ++;
+}
+
+static void
+thrsrv_stat_print(int fd, struct fde *f, void *arg, fde_cb_status s)
+{
+	struct thr *r = arg;
+	struct timeval tv;
+
+	fprintf(stderr, "%s: [%d]: %lld clients; new=%lld, closed=%lld, TX=%lld bytes, RX=%lld bytes\n",
+	    __func__,
+	    r->app_id,
+	    (unsigned long long) r->num_clients,
+	    (unsigned long long) r->total_opened,
+	    (unsigned long long) r->total_closed,
+	    (unsigned long long) r->total_written,
+	    (unsigned long long) r->total_read);
+
+	/* Blank this out, so we get per-second stats */
+	r->total_read = 0;
+	r->total_written = 0;
+	r->total_opened = 0;
+	r->total_closed = 0;
+
+	/*
+	 * Schedule for another second from now.
+	 */
+	/* Add stat - to be called one second in the future */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_sec += 1;
+	fde_add_timeout(r->h, r->ev_stats, &tv);
 }
 
 void *
@@ -168,6 +215,15 @@ thrsrv_new(void *arg)
 	r->comm_listen = comm_create(r->thr_sockfd, r->h, NULL, NULL);
 	comm_mark_nonclose(r->comm_listen);
 	(void) comm_listen(r->comm_listen, thrsrv_acceptfd, r);
+
+	/* Create statistics timer */
+	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrsrv_stat_print, r);
+
+	/* Add stat - to be called one second in the future */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_sec += 1;
+	fde_add_timeout(r->h, r->ev_stats, &tv);
 
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {
@@ -233,6 +289,7 @@ main(int argc, const char *argv[])
 		r->thr_sockfd = fd;
 		r->h = fde_ctx_new();
 		r->cfg = &srv_cfg;
+		r->app_id = i;
 
 		/*
 		 * Only allocate the shared memory bits if we need them.

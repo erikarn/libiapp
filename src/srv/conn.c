@@ -172,6 +172,9 @@ client_read_cb(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		return;
 	}
 
+	if (c->stats_cb.cb != NULL)
+		c->stats_cb.cb(c, c->stats_cb.cbdata, 0, retval);
+
 	/* register for another read */
 	(void) comm_read(c->comm, c->r.buf, c->r.size, client_read_cb, c);
 }
@@ -206,7 +209,9 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 
 	/* Update write statistics - local and parent app */
 	c->total_written += nwritten;
-	c->parent->total_written += nwritten;
+
+	if (c->stats_cb.cb != NULL)
+		c->stats_cb.cb(c, c->stats_cb.cbdata, nwritten, 0);
 
 	/*
 	 * If the threshold value is set, bail out if we reach it.
@@ -245,6 +250,14 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	 * Write some more data - the whole netbuf (again)
 	 */
 	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
+}
+
+void
+conn_set_stats_cb(struct conn *c, conn_owner_stats_update_cb *cb, void *cbdata)
+{
+
+	c->stats_cb.cb = cb;
+	c->stats_cb.cbdata = cbdata;
 }
 
 struct conn *

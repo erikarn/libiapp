@@ -34,14 +34,17 @@ struct cfg;
 
 struct thr {
 	pthread_t thr_id;
+	int app_id;
 	struct cfg *cfg;
 	struct shm_alloc_state sm;
 	int thr_sockfd;
 	struct fde_head *h;
 	struct fde_comm *comm_listen;
+	struct fde *ev_stats;
 	TAILQ_HEAD(, conn) conn_list;
 	uint64_t total_read, total_written;
 	uint64_t total_opened, total_closed;
+	uint64_t num_clients;
 };
 
 #endif	/* __THR_H__ */

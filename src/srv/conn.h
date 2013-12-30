@@ -41,6 +41,7 @@ typedef enum {
 } conn_state_t;
 
 typedef void conn_owner_update_cb(struct conn *c, void *arg, conn_state_t newstate);
+typedef void conn_owner_stats_update_cb(struct conn *c, void *arg, size_t tx_bytes, size_t rx_bytes);
 
 struct conn {
 	int fd;
@@ -67,6 +68,11 @@ struct conn {
 		void *cbdata;
 	} cb;
 
+	struct {
+		conn_owner_stats_update_cb *cb;
+		void *cbdata;
+	} stats_cb;
+
 	/* Configuration related information */
 	struct {
 	} cfg;
@@ -78,5 +84,7 @@ struct conn {
 extern	struct conn * conn_new(struct thr *r, int fd,
 	    conn_owner_update_cb *cb, void *cbdata);
 extern	void conn_close(struct conn *c);
+extern	void conn_set_stats_cb(struct conn *c, conn_owner_stats_update_cb *cb,
+	    void *cbdata);
 
 #endif	/* __CONN_H__ */

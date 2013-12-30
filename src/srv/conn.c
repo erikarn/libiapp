@@ -52,7 +52,6 @@
 #include "iapp_cpu.h"
 
 #include "cfg.h"
-#include "thr.h"
 #include "conn.h"
 
 //#define	DO_DEBUG		1

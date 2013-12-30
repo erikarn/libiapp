@@ -79,7 +79,7 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 	if (c->cb.cb)
 		c->cb.cb(c, c->cb.cbdata, CONN_STATE_FREEING);
 
-	fde_free(c->parent->h, c->ev_cleanup);
+	fde_free(c->h, c->ev_cleanup);
 	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c->r.buf);
 	iapp_netbuf_free(c->w.nb);
@@ -99,7 +99,7 @@ client_ev_close_cb(int fd, struct fde_comm *fc, void *arg)
 
 	/* Schedule the actual cleanup */
 	/* XXX should ensure we only call this once */
-	fde_add(c->parent->h, c->ev_cleanup);
+	fde_add(c->h, c->ev_cleanup);
 }
 /*
  * Initiate shutdown of a given conn.
@@ -304,11 +304,16 @@ conn_new(struct thr *r, int fd, conn_owner_update_cb *cb, void *cbdata)
 		warn("%s: setsockopt(SO_SNDBUF)", __func__);
 
 	c->fd = fd;
-	c->parent = r;
 	c->comm = comm_create(fd, r->h, client_ev_close_cb, c);
 	c->ev_cleanup = fde_create(r->h, -1, FDE_T_CALLBACK, 0,
 	    client_ev_cleanup_cb, c);
 	c->state = CONN_STATE_RUNNING;
+
+	/* Link back to the parent fde loop */
+	c->h = r->h;
+
+	/* .. and the parent state */
+	c->parent = r;
 
 	/* .. and the callback state for notification */
 	c->cb.cb = cb;

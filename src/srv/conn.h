@@ -48,6 +48,7 @@ struct conn {
 	TAILQ_ENTRY(conn) node;
 	struct fde_comm *comm;
 	struct fde *ev_cleanup;
+	struct fde_head *h;
 	conn_state_t state;
 
 	/* read state / buffer */

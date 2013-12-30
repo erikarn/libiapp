@@ -37,9 +37,11 @@ struct thr {
 	int app_id;
 	struct cfg *cfg;
 	struct shm_alloc_state sm;
-	int thr_sockfd;
+	int thr_sockfd_v4;
+	int thr_sockfd_v6;
 	struct fde_head *h;
-	struct fde_comm *comm_listen;
+	struct fde_comm *comm_listen_v4;
+	struct fde_comm *comm_listen_v6;
 	struct fde *ev_stats;
 	TAILQ_HEAD(, conn) conn_list;
 	uint64_t total_read, total_written;

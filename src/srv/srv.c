@@ -116,6 +116,12 @@ thrsrv_listenfd(int port)
 	return (fd);
 }
 
+static void
+thrsrv_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
+{
+
+}
+
 void
 thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
     int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
@@ -131,7 +137,7 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	}
 
 	/* XXX no callbacks for now */
-	c = conn_new(r, newfd, NULL, NULL);
+	c = conn_new(r, newfd, thrsrv_conn_update_cb, r);
 	if (c == NULL) {
 		close(newfd);
 		return;

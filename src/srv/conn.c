@@ -119,6 +119,10 @@ conn_close(struct conn *c)
 
 	c->state = CONN_STATE_CLOSING;
 
+	/* Notify upper layer */
+	if (c->cb.cb)
+		c->cb.cb(c, c->cb.cbdata, CONN_STATE_CLOSING);
+
 	/* Call comm_close(); when IO completes we'll get notified */
 	/*
 	 * The alternative is to track when we're writing and if we
@@ -126,8 +130,6 @@ conn_close(struct conn *c)
 	 */
 	comm_close(c->comm);
 	c->comm = NULL;
-
-	c->parent->total_closed++;
 
 	/*
 	 * The rest of close will occur once the close handler is called.

@@ -127,6 +127,7 @@ thrsrv_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
 
 	if (newstate == CONN_STATE_FREEING) {
 		TAILQ_REMOVE(&r->conn_list, c, node);
+		r->total_closed++;
 	}
 }
 

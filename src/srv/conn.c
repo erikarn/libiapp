@@ -80,7 +80,6 @@ client_ev_cleanup_cb(int fd, struct fde *f, void *arg, fde_cb_status status)
 		c->cb.cb(c, c->cb.cbdata, CONN_STATE_FREEING);
 
 	fde_free(c->h, c->ev_cleanup);
-	TAILQ_REMOVE(&c->parent->conn_list, c, node);
 	free(c->r.buf);
 	iapp_netbuf_free(c->w.nb);
 	free(c);

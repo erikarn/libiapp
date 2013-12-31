@@ -43,6 +43,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <netdb.h>
+
 #include "fde.h"
 #include "shm_alloc.h"
 #include "netbuf.h"
@@ -96,7 +98,7 @@ struct clt_app {
 	int num_clients;
 	struct fde *ev_newconn;
 	char *remote_host;
-	int remote_port;
+	char *remote_port;
 	uint64_t total_read, total_written;
 	uint64_t total_opened;
 	uint64_t total_closed;
@@ -294,7 +296,7 @@ conn_connect_cb(int fd, struct fde_comm *fc, void *arg,
 }
 
 struct conn *
-conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
+conn_new(struct clt_app *r, int type, conn_owner_update_cb *cb, void *cbdata)
 {
 	struct conn *c;
 	int i;
@@ -328,9 +330,9 @@ conn_new(struct clt_app *r, conn_owner_update_cb *cb, void *cbdata)
 		buf[i] = (i % 10) + '0';
 	}
 
-	/* Create an AF_INET socket */
+	/* Create an 'type' socket */
 	/* XXX should be a method */
-	c->fd = socket(AF_INET, SOCK_STREAM, 0);
+	c->fd = socket(type, SOCK_STREAM, 0);
 	if (c->fd < 0) {
 		warn("%s: socket", __func__);
 		free(c);
@@ -392,32 +394,58 @@ thrclt_conn_update_cb(struct conn *c, void *arg, conn_state_t newstate)
 	}
 }
 
+#define	MAX_ADDRINFO	8
+
 int
 thrclt_open_new_conn(struct clt_app *r)
 {
 	struct conn *c;
 	struct sockaddr_in sin;
 	socklen_t slen;
+	struct addrinfo *ai;
+	struct addrinfo ai_hints;
+	int rr;
 
 	/*
-	 * For now, let's create one client object and kick-start it.
+	 * Do a lookup!
 	 */
-	c = conn_new(r, thrclt_conn_update_cb, r);
-	if (c == NULL)
+	bzero(&ai_hints, sizeof(ai_hints));
+	ai_hints.ai_family = PF_UNSPEC;
+	ai_hints.ai_socktype = 0;
+	ai_hints.ai_protocol = IPPROTO_TCP;
+	ai_hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
+
+	rr = getaddrinfo(r->remote_host, r->remote_port, &ai_hints, &ai);
+	if (rr != 0) {
+		warn("%s: getaddrinfo", __func__);
 		return (-1);
+	}
+
+	/*
+	 * Next, extract out the first entry.
+	 */
+	if (ai == NULL) {
+		fprintf(stderr, "%s: ai=NULL\n", __func__);
+		return -1;
+	}
+	/*
+	 * For now, let's create one client object and kick-start it.
+	 * XXX shuld also pass in res->ai_socktype and res->ai_protocol
+	 */
+	c = conn_new(r, ai->ai_family, thrclt_conn_update_cb, r);
+	if (c == NULL) {
+		freeaddrinfo(ai);
+		return (-1);
+	}
 
 	/* Start connecting */
 	c->state = CONN_STATE_CONNECTING;
-	slen = sizeof(sin);
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(r->remote_port);
-	(void) inet_aton(r->remote_host, &sin.sin_addr);
-	sin.sin_len = sizeof(struct sockaddr_in);
-	(void) comm_connect(c->comm, (struct sockaddr *) &sin, slen,
+	(void) comm_connect(c->comm, ai->ai_addr, ai->ai_addrlen,
 	    conn_connect_cb, c);
 
 	r->num_clients++;
 
+	freeaddrinfo(ai);
 	return (0);
 }
 
@@ -534,8 +562,8 @@ main(int argc, const char *argv[])
 {
 	struct clt_app *rp, *r;
 	int i;
-	int nthreads, connrate, bufsize, nconns, rem_port;
-	char *rem_ip;
+	int nthreads, connrate, bufsize, nconns;
+	char *rem_ip, *rem_port;
 
 	/* XXX validate command line parameters */
 	if (argc < 7)
@@ -546,7 +574,7 @@ main(int argc, const char *argv[])
 	connrate = atoi(argv[3]);
 	bufsize = atoi(argv[4]);
 	rem_ip = strdup(argv[5]);
-	rem_port = atoi(argv[6]);
+	rem_port = strdup(argv[6]);
 
 	/* XXX these should be done as part of a global setup */
 	iapp_netbuf_init();
@@ -564,7 +592,7 @@ main(int argc, const char *argv[])
 		r->app_id = i;
 		r->h = fde_ctx_new();
 		r->remote_host = strdup(rem_ip);
-		r->remote_port = rem_port;
+		r->remote_port = strdup(rem_port);
 		r->max_io_size = bufsize;
 		r->nconns = nconns;
 		r->connrate = connrate;

@@ -106,6 +106,9 @@ shm_alloc_new_slab(struct shm_alloc_state *sm, size_t size, int do_mlock)
 	TAILQ_INIT(&sh->free_list);
 	sh->free_list_cnt = 0;
 
+	/* And link back to the parent */
+	sh->sm = sm;
+
 	/* Done! Good */
 	return (0);
 
@@ -260,6 +263,7 @@ int
 shm_alloc_free(struct shm_alloc_allocation *sa)
 {
 
-	/* XXX ignore for now */
+	shm_alloc_add_freelist(sa->sha_slab->sm, sa);
+
 	return (0);
 }

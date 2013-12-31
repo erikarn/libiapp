@@ -21,6 +21,7 @@ struct shm_alloc_state {
 struct shm_alloc_slab {
 	int shm_fd;
 	size_t shm_size;
+	struct shm_alloc_state *sm;
 
 	TAILQ_ENTRY(shm_alloc_slab) node;
 

@@ -212,11 +212,13 @@ shm_alloc_alloc(struct shm_alloc_state *sm, size_t size)
 
 	/* Walk the slab list, look for something free */
 	TAILQ_FOREACH(sh, &sm->slab_list, node) {
+#if 0
 		fprintf(stderr, "%s: curofs=%lld, size=%lld, shm_size=%lld\n",
 		    __func__,
 		    (long long) sh->shm_curofs,
 		    (long long) size,
 		    (long long) sh->shm_size);
+#endif
 		/*
 		 * Skip out if we have no free space
 		 */

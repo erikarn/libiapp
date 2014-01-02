@@ -31,6 +31,13 @@
 struct thr;
 struct conn;
 struct cfg;
+struct thrsrv_newfd;
+
+struct thrsrv_newfd {
+	int newfd;
+	uint32_t flowid;
+	TAILQ_ENTRY(thrsrv_newfd) node;
+};
 
 struct thr {
 	pthread_t thr_id;
@@ -44,6 +51,11 @@ struct thr {
 	struct fde_comm *comm_listen_v6;
 	struct fde *ev_stats;
 	TAILQ_HEAD(, conn) conn_list;
+
+	struct fde *ev_deferred;
+	TAILQ_HEAD(, thrsrv_newfd) newfd_list;
+	pthread_mutex_t newfd_lock;
+
 	uint64_t total_read, total_written;
 	uint64_t total_opened, total_closed;
 	uint64_t num_clients;

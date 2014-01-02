@@ -62,6 +62,29 @@
 #define	IP_FLOWID	25
 #endif
 
+struct thr *rp;
+
+static int
+thrsrv_newfd_enqueue(int newfd, uint32_t flowid, struct thr *dr)
+{
+	struct thrsrv_newfd *th;
+
+	th = calloc(1, sizeof(*th));
+	if (th == NULL) {
+		warn("%s: calloc", __func__);
+		return (-1);
+	}
+
+	th->newfd = newfd;
+	th->flowid = flowid;
+
+	pthread_mutex_lock(&dr->newfd_lock);
+	TAILQ_INSERT_TAIL(&dr->newfd_list, th, node);
+	pthread_mutex_unlock(&dr->newfd_lock);
+
+	return (0);
+}
+
 static int
 thrsrv_listenfd_setup(struct sockaddr_storage *sin, int type, int len)
 {
@@ -177,21 +200,20 @@ thrsrv_conn_stats_update_cb(struct conn *c, void *arg, size_t tx_bytes,
 	r->total_written += tx_bytes;
 }
 
-void
-thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
-    int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
+static int
+thrsrv_flowid_to_thread(uint32_t flowid)
 {
-	struct thr *r = arg;
-	struct conn *c;
-	int rr, flowid;
-	socklen_t sl;
+	if (flowid == 0)
+		return (-1);
 
-	if (s != FDE_COMM_CB_COMPLETED) {
-		fprintf(stderr,
-		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
-		    __func__, r, s, errno, newfd);
-		return;
-	}
+	/* for now we just assume this is correct */
+	return (flowid % 8);
+}
+
+static void
+thrsrv_finish_setup(struct thr *r, int newfd, uint32_t flowid)
+{
+	struct conn *c;
 
 	/* XXX no callbacks for now */
 	c = conn_new(r->h, r->cfg, &r->sm, newfd, thrsrv_conn_update_cb, r);
@@ -201,6 +223,62 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	}
 	conn_set_stats_cb(c, thrsrv_conn_stats_update_cb, r);
 
+	c->flowid = flowid;
+
+	/* Add it to the connection list */
+	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
+
+	/* number of clients */
+	r->num_clients ++;
+}
+
+static void
+thrsrv_run_deferred(int fd, struct fde *f, void *arg, fde_cb_status s)
+{
+	struct timeval tv;
+	struct thr *r = arg;
+	struct thrsrv_newfd *th;
+
+	/*
+	 * XXX should just extract the list first!
+	 */
+	pthread_mutex_lock(&r->newfd_lock);
+	while (! TAILQ_EMPTY(&r->newfd_list)) {
+		th = TAILQ_FIRST(&r->newfd_list);
+		TAILQ_REMOVE(&r->newfd_list, th, node);
+		thrsrv_finish_setup(r, th->newfd, th->flowid);
+		free(th);
+	}
+	pthread_mutex_unlock(&r->newfd_lock);
+
+	/*
+	 * Run 100ms in advance.
+	 */
+	(void) gettimeofday(&tv, NULL);
+	tv.tv_usec += (100 * 1000);
+	if (tv.tv_usec > (1000 * 1000)) {
+		tv.tv_usec -= (1000 * 1000);
+		tv.tv_sec += 1;
+	}
+	fde_add_timeout(r->h, r->ev_deferred, &tv);
+}
+
+void
+thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
+    int newfd, struct sockaddr *saddr, socklen_t slen, int xerrno)
+{
+	struct thr *r = arg;
+	int rr, flowid;
+	socklen_t sl;
+	int thr_id;
+
+	if (s != FDE_COMM_CB_COMPLETED) {
+		fprintf(stderr,
+		    "%s: %p: LISTEN: status=%d, errno=%d, newfd=%d\n",
+		    __func__, r, s, errno, newfd);
+		return;
+	}
+
 	/*
 	 * Flowid!
 	 */
@@ -208,14 +286,31 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	rr = getsockopt(newfd, IPPROTO_IP, IP_FLOWID, &flowid, &sl);
 	if (rr == 0) {
 		printf("%s: FD=%d, flowid=0x%08x\n", __func__, newfd, flowid);
-		c->flowid = flowid;
 	}
 
-	/* Add it to the connection list list */
-	TAILQ_INSERT_TAIL(&r->conn_list, c, node);
+	/*
+	 * Figure out the correct destination thread.
+	 */
+	thr_id = thrsrv_flowid_to_thread(flowid);
 
-	/* number of clients */
-	r->num_clients ++;
+	/*
+	 * Limit the thread ID to the number of CPUs we have.
+	 */
+	thr_id = thr_id % r->cfg->num_threads;
+
+	/*
+	 * Only do thread affinity work if configured.
+	 */
+	if (r->cfg->do_fd_affinity == 1 && thr_id != -1 && thr_id != r->app_id) {
+		printf("%s: FD=%d, mapping from CPU %d -> %d\n",
+		    __func__,
+		    newfd,
+		    r->app_id, thr_id);
+		if (thrsrv_newfd_enqueue(newfd, flowid, &rp[thr_id]) < 0)
+			close(newfd);
+	} else {
+		thrsrv_finish_setup(r, newfd, flowid);
+	}
 }
 
 static void
@@ -269,18 +364,25 @@ thrsrv_new(void *arg)
 		(void) comm_listen(r->comm_listen_v6, thrsrv_acceptfd, r);
 	}
 
+	pthread_mutex_init(&r->newfd_lock, NULL);
+
 	/* Create statistics timer */
 	r->ev_stats = fde_create(r->h, -1, FDE_T_TIMER, 0,
 	    thrsrv_stat_print, r);
+	r->ev_deferred = fde_create(r->h, -1, FDE_T_TIMER, 0,
+	    thrsrv_run_deferred, r);
 
 	/* Add stat - to be called one second in the future */
 	(void) gettimeofday(&tv, NULL);
 	tv.tv_sec += 1;
 	fde_add_timeout(r->h, r->ev_stats, &tv);
 
+	/* .. and the deferred handler */
+	(void) gettimeofday(&tv, NULL);
+	fde_add_timeout(r->h, r->ev_deferred, &tv);
+
 	/* Loop around, listening for events; farm them off as required */
 	while (1) {
-
 		tv.tv_sec = 1;
 		tv.tv_usec = 0;
 		fde_runloop(r->h, &tv);
@@ -346,6 +448,8 @@ srv_parse_option(struct cfg *cfg, const char *opt)
 		cfg->port = atoi(sv);
 	} else if (strcmp("do_thread_pin", sa) == 0) {
 		cfg->do_thread_pin = atoi(sv);
+	} else if (strcmp("do_fd_affinity", sa) == 0) {
+		cfg->do_fd_affinity = atoi(sv);
 	} else {
 		printf("unknown option '%s'\n", sa);
 		goto finish_err;
@@ -363,7 +467,7 @@ finish_err:
 int
 main(int argc, const char *argv[])
 {
-	struct thr *rp, *r;
+	struct thr *r;
 	int i;
 	int fd_v4 = -1;
 	int fd_v6 = -1;
@@ -445,6 +549,7 @@ main(int argc, const char *argv[])
 			    srv_cfg.max_num_conns*srv_cfg.io_size,
 			    1);
 		TAILQ_INIT(&r->conn_list);
+		TAILQ_INIT(&r->newfd_list);
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");
 

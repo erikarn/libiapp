@@ -34,6 +34,8 @@ struct cfg {
 	int max_num_conns;
 	netbuf_alloc_type atype;
 	int port;
+	int do_thread_pin;
+	int do_fd_affinity;
 };
 
 #endif	/* __CFG_H__ */

@@ -273,6 +273,77 @@ thrsrv_new(void *arg)
 	return (NULL);
 }
 
+/*
+ * Parse the given configuration attrib=value combination.
+ * Update 'cfg' as appropriate.
+ */
+static int
+srv_parse_option(struct cfg *cfg, const char *opt)
+{
+	char *str = NULL;
+	const char *sa, *sv;
+	char *p;
+
+	if (opt == NULL)
+		return (0);
+
+	/*
+	 * Temporary copy!
+	 */
+	str = strdup(opt);
+	if (str == NULL) {
+		warn("%s: strdup", __func__);
+		goto finish_err;
+	}
+
+	/*
+	 * Parse out the attrib=value
+	 */
+	p = str;
+
+	sa = strsep(&p, "=");
+	if (sa == NULL)
+		goto finish_err;
+
+	sv = strsep(&p, "=");
+	if (sv == NULL)
+		goto finish_err;
+
+	/* Parse option */
+	if (strcmp("num_threads", sa) == 0) {
+		cfg->num_threads = atoi(sv);
+	} else if (strcmp("io_size", sa) == 0) {
+		cfg->io_size = atoi(sv);
+	} else if (strcmp("max_num_conns", sa) == 0) {
+		cfg->max_num_conns = atoi(sv);
+	} else if (strcmp("atype", sa) == 0) {
+		if (strcmp("posixshm", sv) == 0) {
+			cfg->atype = NB_ALLOC_POSIXSHM;
+		} else if (strcmp("malloc", sv) == 0) {
+			cfg->atype = NB_ALLOC_MALLOC;
+		} else {
+			printf("unknown atype "
+			    "(posixshm or malloc, got '%s')\n", sv);
+			goto finish_err;
+		}
+	} else if (strcmp("port", sa) == 0) {
+		cfg->port = atoi(sv);
+	} else if (strcmp("do_thread_pin", sa) == 0) {
+		cfg->do_thread_pin = atoi(sv);
+	} else {
+		printf("unknown option '%s'\n", sa);
+		goto finish_err;
+	}
+
+	free(str);
+	return (0);
+
+finish_err:
+	if (str)
+		free(str);
+	return (-1);
+}
+
 int
 main(int argc, const char *argv[])
 {
@@ -292,6 +363,14 @@ main(int argc, const char *argv[])
 	srv_cfg.max_num_conns = 32768;
 	srv_cfg.atype = NB_ALLOC_MALLOC;
 	srv_cfg.port = 1667;
+	srv_cfg.do_thread_pin = 1;
+	srv_cfg.do_fd_affinity = 0;
+
+	/* Parse command line */
+	for (i = 1; i < argc; i++) {
+		if (srv_parse_option(&srv_cfg, argv[i]))
+			exit(127);
+	}
 
 	/* Mark SIGPIPE as an ignore on all threads */
 	sigemptyset(&ss);
@@ -353,14 +432,16 @@ main(int argc, const char *argv[])
 		if (pthread_create(&r->thr_id, NULL, thrsrv_new, r) != 0)
 			perror("pthread_create");
 
-		/* Set affinity */
-		CPU_ZERO(&cp);
-		CPU_SET(i % ncpu, &cp);
+		if (srv_cfg.do_thread_pin) {
+			/* Set affinity */
+			CPU_ZERO(&cp);
+			CPU_SET(i % ncpu, &cp);
 
-		printf("%s: thread id %d -> CPU %d\n", argv[0], i, i % ncpu);
+			printf("%s: thread id %d -> CPU %d\n", argv[0], i, i % ncpu);
 
-		if (pthread_setaffinity_np(r->thr_id, sizeof(cpuset_t), &cp) != 0)
-			warn("pthread_setaffinity_np (id %d)", i);
+			if (pthread_setaffinity_np(r->thr_id, sizeof(cpuset_t), &cp) != 0)
+				warn("pthread_setaffinity_np (id %d)", i);
+		}
 	}
 
 	/* Join */

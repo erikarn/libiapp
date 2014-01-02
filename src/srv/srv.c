@@ -58,6 +58,10 @@
 #include "thr.h"
 #include "conn.h"
 
+#ifndef	IP_FLOWID
+#define	IP_FLOWID	25
+#endif
+
 static int
 thrsrv_listenfd_setup(struct sockaddr_storage *sin, int type, int len)
 {
@@ -179,6 +183,8 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 {
 	struct thr *r = arg;
 	struct conn *c;
+	int rr, flowid;
+	socklen_t sl;
 
 	if (s != FDE_COMM_CB_COMPLETED) {
 		fprintf(stderr,
@@ -194,6 +200,16 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 		return;
 	}
 	conn_set_stats_cb(c, thrsrv_conn_stats_update_cb, r);
+
+	/*
+	 * Flowid!
+	 */
+	sl = sizeof(flowid);
+	rr = getsockopt(newfd, IPPROTO_IP, IP_FLOWID, &flowid, &sl);
+	if (rr == 0) {
+		printf("%s: FD=%d, flowid=0x%08x\n", __func__, newfd, flowid);
+		c->flowid = flowid;
+	}
 
 	/* Add it to the connection list list */
 	TAILQ_INSERT_TAIL(&r->conn_list, c, node);

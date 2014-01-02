@@ -76,6 +76,9 @@ struct conn {
 	struct {
 	} cfg;
 
+	/* Connection flowid from kernel */
+	uint32_t flowid;
+
 	uint64_t total_read, total_written;
 	uint64_t write_close_thr;
 };

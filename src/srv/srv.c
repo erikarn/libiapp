@@ -46,6 +46,7 @@
 #include <sys/event.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <sys/endian.h>
 #include <netinet/in.h>
 
 #include "fde.h"
@@ -206,8 +207,8 @@ thrsrv_flowid_to_thread(uint32_t flowid)
 	if (flowid == 0)
 		return (-1);
 
-	/* for now we just assume this is correct */
-	return (flowid % 8);
+	/* for now we just assume this is correct - 8 CPUs */
+	return (flowid & 0x7);
 }
 
 static void
@@ -285,7 +286,7 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	sl = sizeof(flowid);
 	rr = getsockopt(newfd, IPPROTO_IP, IP_FLOWID, &flowid, &sl);
 	if (rr == 0) {
-		printf("%s: FD=%d, flowid=0x%08x\n", __func__, newfd, flowid);
+		printf("%s: FD=%d, flowid=0x%08x, len=%d\n", __func__, newfd, flowid, (int) sl);
 	}
 
 	/*
@@ -294,14 +295,13 @@ thrsrv_acceptfd(int fd, struct fde_comm *fc, void *arg, fde_comm_cb_status s,
 	thr_id = thrsrv_flowid_to_thread(flowid);
 
 	/*
-	 * Limit the thread ID to the number of CPUs we have.
-	 */
-	thr_id = thr_id % r->cfg->num_threads;
-
-	/*
 	 * Only do thread affinity work if configured.
 	 */
 	if (r->cfg->do_fd_affinity == 1 && thr_id != -1 && thr_id != r->app_id) {
+		/*
+		 * Limit the thread ID to the number of CPUs we have.
+		 */
+		thr_id = thr_id % r->cfg->num_threads;
 		printf("%s: FD=%d, mapping from CPU %d -> %d\n",
 		    __func__,
 		    newfd,

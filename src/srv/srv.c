@@ -59,10 +59,6 @@
 #include "thr.h"
 #include "conn.h"
 
-#ifndef	IP_FLOWID
-#define	IP_FLOWID	25
-#endif
-
 struct thr *rp;
 
 static int

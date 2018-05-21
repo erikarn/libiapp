@@ -29,6 +29,6 @@
 #
 .include <bsd.own.mk>
 
-SUBDIR=libiapp librss
+SUBDIR=libiapp
 
 .include <bsd.subdir.mk>

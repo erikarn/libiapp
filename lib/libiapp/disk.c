@@ -63,7 +63,7 @@ disk_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	 * handle is completely finshed!
 	 */
 
-	if (fdd->c.cb != NULL);
+	if (fdd->c.cb != NULL)
 		fdd->c.cb(fdd, fdd->c.cbdata);
 	if (fdd->do_close)
 		close(fdd->fd);

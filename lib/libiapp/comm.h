@@ -93,8 +93,6 @@ struct fde_comm {
 	struct fde *ev_write;
 	struct fde *ev_write_cb;
 
-	struct fde *ev_sendfile;
-
 	struct fde *ev_accept;
 	struct fde *ev_connect;
 	struct fde *ev_connect_start;
@@ -128,7 +126,6 @@ struct fde_comm {
 		int is_active;
 		int is_ready;	/* 1 when the write-ready event has fired */
 		int is_write;	/* have we scheduled the write event? */
-		int sendfile_pending;	/* Is there a pending sendfile? */
 		struct iapp_netbuf *nb;
 		int nb_start_offset;	/* starting point _inside_ the netbuf */
 		int offset;

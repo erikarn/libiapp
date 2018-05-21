@@ -48,9 +48,6 @@
 
 #define	XMIN(x,y)	((x) < (y) ? (x) : (y))
 
-/* Define this for posix shared memory sendfile + kqueue notification path support */
-#undef	POSIX_SHM_SENDFILE
-
 /*
  * This implements the 'socket' logic for sockets, pipes and such.
  * It isn't at all useful for disk IO.
@@ -72,8 +69,7 @@ comm_is_close_ready(struct fde_comm *fc)
 	 */
 	return (fc->r.is_active == 0 && fc->w.is_active == 0 &&
 	    fc->a.is_active == 0 && fc->co.is_active == 0 &&
-	    fc->udp_r.is_active == 0 && fc->udp_w.is_active == 0 &&
-	    fc->w.sendfile_pending == 0);
+	    fc->udp_r.is_active == 0 && fc->udp_w.is_active == 0);
 }
 
 static void
@@ -315,44 +311,6 @@ comm_cb_write_complete(struct fde_comm *c, int ret)
 }
 
 /*
- * Sendfile completion - complete/continue write transaction.
- */
-static void
-comm_cb_sendfile_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
-{
-	struct fde_comm *c = arg;
-
-//	fprintf(stderr, "%s: %p: status=%d, ret=%d\n", __func__, c, status, c->w.ret);
-	c->w.sendfile_pending = 0;
-
-	/*
-	 * Closing? Don't do the IO; start the closing machinery.
-	 */
-	if (c->is_closing) {
-		c->w.is_active = 0;
-		c->w.is_ready = 0;
-		/*
-		 * XXX This combined with comm_cb_write_cb() may double-call
-		 * XXX the close!  We should fix this!
-		 */
-		c->w.cb(c->fd, c, c->w.cbdata, FDE_COMM_CB_CLOSING, c->w.offset);
-		if (comm_is_close_ready(c)) {
-			comm_start_cleanup(c);
-			return;
-		}
-	}
-
-	/*
-	 * The sendfile completion tells us how many bytes were written,
-	 * but the sendfile doesn't complete until this particular
-	 * callback is called.
-	 *
-	 * So, finish the second half of the write.
-	 */
-	comm_cb_write_complete(c, c->w.ret);
-}
-
-/*
  * Check to see if we can do any write IO.
  */
 static void
@@ -361,9 +319,6 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 	int ret;
 	struct fde_comm *c = arg;
 	fde_comm_cb_status s;
-	int do_sendfile = 0;
-
-//	fprintf(stderr, "%s: %p: (sf=%p) called\n", __func__, c, c->ev_sendfile);
 
 	/* Closing? Don't do the IO; start the closing machinery */
 	if (c->is_closing) {
@@ -384,80 +339,12 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 		return;
 	}
 
-	/* If we have a pending sendfile - delay for now */
-	if (c->w.sendfile_pending == 1) {
-//		fprintf(stderr, "%s: %p: pending=1, delaying\n", __func__, c);
-		return;
-	}
-
-#ifdef	POSIX_SHM_SENDFILE
-	if (c->w.nb->nb_type == NB_ALLOC_POSIXSHM) {
-		off_t sbytes = 0;
-		struct sf_hdtr_all shdr;
-
-		/*
-		 * We create a kqueue header for this particular hilarity.
-		 */
-		bzero(&shdr, sizeof(shdr));
-
-		/*
-		 * Setup kqueue information.  The completion state should
-		 * be the ev_sendfile fde, not the comm handle or the fde
-		 * itself!
-		 */
-		shdr.kq.kq_fd = c->fh_parent->kqfd;
-		shdr.kq.kq_flags = EV_ONESHOT;
-		shdr.kq.kq_ident = (uintptr_t) c->ev_sendfile;
-		shdr.kq.kq_udata = c->ev_sendfile;
-
-		ret = sendfile(
-		    c->w.nb->sa->sha_fd,
-		    c->fd,
-		    c->w.nb->sa->sha_offset +
-		        c->w.nb_start_offset +
-		        c->w.offset,
-		    c->w.len - c->w.offset,
-		    (struct sf_hdtr *) &shdr,
-		    &sbytes,
-		    SF_NODISKIO | SF_KQUEUE);
-
-//		fprintf(stderr, "%s: %p: ret=%d; sbytes=%d, errno=%d\n", __func__, c, ret, (int) sbytes, errno);
-
-		/*
-		 * ret = 0? Then we succeeded.
-		 *
-		 * ret < 0? Then we may have partially succeeded.
-		 */
-		if (ret == 0) {
-			ret = sbytes;
-		} else {
-			if ((errno == EAGAIN || errno == EBUSY || errno == EINTR) && sbytes > 0) {
-				ret = sbytes;
-			}
-		}
-
-		/* Save this for later */
-		c->w.ret = ret;
-
-		/*
-		 * Defer completion processing if we have an outstanding
-		 * sendfile transaction.
-		 */
-		if (ret > 0) {
-			do_sendfile = 1;
-			c->w.sendfile_pending = 1;
-		}
-	} else {
-#endif
-		/*
-		 * Write out from the current buffer position.
-		 */
-		ret = write(c->fd,
-		    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
-		    c->w.len - c->w.offset);
-#ifdef	POSIX_SHM_SENDFILE
-	}
-#endif
+	/*
+	 * Write out from the current buffer position.
+	 */
+	ret = write(c->fd,
+	    iapp_netbuf_buf(c->w.nb) + c->w.nb_start_offset + c->w.offset,
+	    c->w.len - c->w.offset);
 	//	fprintf(stderr, "%s: write returned %d\n", __func__, ret);
 
 	/*
@@ -483,12 +370,10 @@ comm_cb_write_cb(int fd_notused, struct fde *f, void *arg, fde_cb_status status)
 	}
 
 	/*
-	 * If we're doing sendfile and ret > 0, then we
-	 * defer completion until we get a sendfile notification.
-	 *
-	 * If we're not doing sendfile, just call it immediately.
+	 * If we failed the write or we hit EOF then call the completion
+	 * immediately.
 	 */
-	if (do_sendfile == 0 || ret <= 0)
+	if (ret <= 0)
 		comm_cb_write_complete(c, ret);
 }
 
@@ -598,7 +483,6 @@ comm_cb_cleanup(int fd, struct fde *f, void *arg, fde_cb_status status)
 	fde_free(c->fh_parent, c->ev_read);
 	fde_free(c->fh_parent, c->ev_read_cb);
 	fde_free(c->fh_parent, c->ev_write);
-	fde_free(c->fh_parent, c->ev_sendfile);
 	fde_free(c->fh_parent, c->ev_write_cb);
 	fde_free(c->fh_parent, c->ev_accept);
 	fde_free(c->fh_parent, c->ev_connect);
@@ -941,10 +825,6 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 	if (fc->ev_write == NULL)
 		goto cleanup;
 
-	fc->ev_sendfile = fde_create(fh, fd, FDE_T_SENDFILE, FDE_F_PERSIST, comm_cb_sendfile_cb, fc);
-	if (fc->ev_sendfile == NULL)
-		goto cleanup;
-
 	fc->ev_write_cb = fde_create(fh, -1, FDE_T_CALLBACK, 0, comm_cb_write_cb, fc);
 	if (fc->ev_write_cb == NULL)
 		goto cleanup;
@@ -979,12 +859,6 @@ comm_create(int fd, struct fde_head *fh, comm_close_cb *cb, void *cbdata)
 		goto cleanup;
 	TAILQ_INIT(&fc->udp_w.w_q);
 
-	/*
-	 * Start the sendfile receive event here.
-	 * We may as well.
-	 */
-	fde_add(fh, fc->ev_sendfile);
-
 	return (fc);
 
 cleanup:
@@ -994,8 +868,6 @@ cleanup:
 		fde_free(fh, fc->ev_read_cb);
 	if (fc->ev_write)
 		fde_free(fh, fc->ev_write);
-	if (fc->ev_sendfile)
-		fde_free(fh, fc->ev_sendfile);
 	if (fc->ev_write_cb)
 		fde_free(fh, fc->ev_write_cb);
 	if (fc->ev_cleanup)

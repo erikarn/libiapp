@@ -147,12 +147,6 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_flags fl,
 		case FDE_T_TIMER:
 			/* Nothing to do here */
 			break;
-		case FDE_T_SENDFILE:
-			/*
-			 * XXX not setup here; it's done when sendfile()
-			 * XXX is called!
-			 */
-			break;
 		default:
 			warn("%s: event type %d not implemented\n",
 			    __func__, t);
@@ -292,27 +286,6 @@ fde_t_delete(struct fde_head *fh, struct fde *f)
 	TAILQ_REMOVE(&fh->f_t_head, f, cb_node);
 }
 
-static void
-fde_sf_add(struct fde_head *fh, struct fde *f)
-{
-
-	if (f->is_active)
-		return;
-
-	f->is_active = 1;
-	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
-}
-
-static void
-fde_sf_delete(struct fde_head *fh, struct fde *f)
-{
-
-	if (! f->is_active)
-		return;
-	f->is_active = 0;
-	TAILQ_REMOVE(&fh->f_head, f, node);
-}
-
 void
 fde_add(struct fde_head *fh, struct fde *f)
 {
@@ -324,9 +297,6 @@ fde_add(struct fde_head *fh, struct fde *f)
 			break;
 		case FDE_T_CALLBACK:
 			fde_cb_add(fh, f);
-			break;
-		case FDE_T_SENDFILE:
-			fde_sf_add(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
@@ -422,9 +392,6 @@ fde_delete(struct fde_head *fh, struct fde *f)
 			break;
 		case FDE_T_TIMER:
 			fde_t_delete(fh, f);
-			break;
-		case FDE_T_SENDFILE:
-			fde_sf_delete(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
@@ -563,24 +530,6 @@ fde_rw_runloop(struct fde_head *fh, const struct timespec *timeout)
 			    (unsigned long long) fh->kev_list[i].ident);
 			continue;
 		}
-
-#if 0
-		if (fh->kev_list[i].filter == EVFILT_SENDFILE) {
-			fprintf(stderr, "%s: kq %d; ident %d; filt %d, flags 0x%08x, data %d, udata %p\n",
-			    __func__,
-			    fh->kqfd,
-			    (int) fh->kev_list[i].ident,
-			    fh->kev_list[i].filter,
-			    fh->kev_list[i].flags,
-			    (int) fh->kev_list[i].data,
-			    fh->kev_list[i].udata);
-			fprintf(stderr, "%s:   f->type=%d, f->flags=0x%08x, f->isactive=%d\n",
-			    __func__,
-			    f->f_type,
-			    f->f_flags,
-			    f->is_active);
-		}
-#endif
 
 		if (fh->kev_list[i].flags & EV_ERROR) {
 			switch (fh->kev_list[i].data) {

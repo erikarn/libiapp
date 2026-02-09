@@ -30,6 +30,7 @@ LIB=iapp
 SRCS=comm.c fde.c debug.c netbuf.c shm_alloc.c disk.c iapp_cpu.c
 NO_MAN=1
 DEBUG_FLAGS=-O0 -g
+CFLAGS=-fPIC
 
 .include <bsd.lib.mk>
 

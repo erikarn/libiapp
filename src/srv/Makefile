@@ -31,7 +31,7 @@ SRCS=srv.c conn.c
 CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -Wall -Werror
 LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/
 LDADD=-lpthread -liapp
-NO_MAN=1
+MK_MAN=no
 DEBUG_FLAGS=-g
 
 .include <bsd.prog.mk>

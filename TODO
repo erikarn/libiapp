@@ -1,4 +1,6 @@
 
+pre-2026
+
 * Re-implement the FD read and FD UDP read methods to use EV_PERSIST
   correctly:
   + have an fde_comm flag to say "yes, i've added the event"
@@ -19,3 +21,9 @@
 
 * .. same with comm FD / comm UDP FD write
 
+2026
+
+* migrate the FD operations (eg the non blocking call) into
+  a separate source file or util library here
+
+* bring in libdebug into this mess and start leveraging it here

@@ -45,3 +45,7 @@ pre-2026
 Ideally a demo app should be written which doesn't do any of its own
 socket, disk, filedescriptor, etc work by itself.
 
+* implement EVFILT_USER to queue oneshot trigger events into a kqueue
+  worker thread to wake it up.  Add that abstraction to fde.[ch] and
+  the worker queue and the thread pool stuff.
+

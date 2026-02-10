@@ -211,7 +211,6 @@ extern	void comm_close(struct fde_comm *fc);
 /*
  * Set or clear the non-block flag on an open comm object.
  */
-extern	int comm_fd_set_nonblocking(int fd, int enable);
 extern	int comm_set_nonblocking(struct fde_comm *c, int enable);
 
 /*

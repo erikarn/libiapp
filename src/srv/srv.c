@@ -58,6 +58,7 @@
 #include "cfg.h"
 #include "thr.h"
 #include "conn.h"
+#include "fd_util.h"
 
 struct thr *rp;
 
@@ -80,93 +81,6 @@ thrsrv_newfd_enqueue(int newfd, uint32_t flowid, struct thr *dr)
 	pthread_mutex_unlock(&dr->newfd_lock);
 
 	return (0);
-}
-
-static int
-thrsrv_listenfd_setup(struct sockaddr_storage *sin, int type, int len)
-{
-	int fd;
-	int a;
-
-	fd = socket(type, SOCK_STREAM, 0);
-	if (fd < 0) {
-		fprintf(stderr, "%s: socket() failed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		return (-1);
-	}
-
-	/* Make non-blocking */
-	(void) comm_fd_set_nonblocking(fd, 1);
-
-#if 0
-	/* make reuse */
-	a = 1;
-	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &a, sizeof(a));
-#endif
-
-	/* and reuse port */
-	a = 1;
-	if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &a, sizeof(a)) < 0) {
-		err(1, "%s: setsockopt", __func__);
-	}
-
-	if (bind(fd, (struct sockaddr *) sin, len) < 0) {
-		fprintf(stderr, "%s: bind() failed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		close(fd);
-		return (-1);
-	}
-
-	if (listen(fd, -1) < 0) {
-		fprintf(stderr, "%s: listen() failed; errno=%d (%s)\n",
-		    __func__,
-		    errno,
-		    strerror(errno));
-		close(fd);
-		return (-1);
-	}
-
-	return (fd);
-}
-
-static int
-thrsrv_listenfd_v4(int port)
-{
-	struct sockaddr_storage s;
-	struct sockaddr_in *sin;
-
-	bzero(&s, sizeof(s));
-
-	sin = (struct sockaddr_in *) &s;
-
-	sin->sin_family = AF_INET;
-	sin->sin_addr.s_addr = 0;
-	sin->sin_port = htons(port);
-	sin->sin_len = sizeof(struct sockaddr_in);
-
-	return (thrsrv_listenfd_setup(&s, AF_INET, sizeof(struct sockaddr_in)));
-}
-
-static int
-thrsrv_listenfd_v6(int port)
-{
-	struct sockaddr_storage s;
-	struct sockaddr_in6 *sin6;
-
-	bzero(&s, sizeof(s));
-
-	sin6 = (struct sockaddr_in6 *) &s;
-
-	sin6->sin6_family = AF_INET6;
-	sin6->sin6_addr = in6addr_any;
-	sin6->sin6_port = htons(port);
-	sin6->sin6_len = sizeof(struct sockaddr_in6);
-
-	return (thrsrv_listenfd_setup(&s, AF_INET6, sizeof(struct sockaddr_in6)));
 }
 
 static void
@@ -502,13 +416,13 @@ main(int argc, const char *argv[])
 	 * Create a single listen FD; we'll create separate conn state
 	 * for each, but it'll be a single listen queue.
 	 */
-	fd_v4 = thrsrv_listenfd_v4(1667);
+	fd_v4 = comm_fd_create_listen_tcp_v4(1667);
 	if (fd_v4 < 0) {
 		perror("listenfd");
 	}
 
 	/* .. and v6 */
-	fd_v6 = thrsrv_listenfd_v6(1667);
+	fd_v6 = comm_fd_create_listen_tcp_v6(1667);
 	if (fd_v6 < 0) {
 		perror("listenfd");
 	}

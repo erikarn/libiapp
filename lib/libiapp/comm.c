@@ -44,6 +44,7 @@
 #include "shm_alloc.h"
 #include "netbuf.h"
 #include "fde.h"
+#include "fd_util.h"
 #include "comm.h"
 
 #define	XMIN(x,y)	((x) < (y) ? (x) : (y))
@@ -90,20 +91,6 @@ comm_start_cleanup(struct fde_comm *fc)
 	/* Schedule the cleanup */
 	fc->is_cleanup = 1;
 	fde_add(fc->fh_parent, fc->ev_cleanup);
-}
-
-int
-comm_fd_set_nonblocking(int fd, int enable)
-{
-	int a;
-
-	a = fcntl(fd, F_GETFL, 0);
-	/* XXX check */
-	if (enable)
-		a |= O_NONBLOCK;
-	else
-		a &= ~O_NONBLOCK;
-	return (fcntl(fd, F_SETFL, a));
 }
 
 int

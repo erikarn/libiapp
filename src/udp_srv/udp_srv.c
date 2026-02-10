@@ -42,6 +42,7 @@
 
 #include "fde.h"
 #include "comm.h"
+#include "fd_util.h"
 
 #define	NUM_THREADS		4
 

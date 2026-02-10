@@ -45,6 +45,7 @@
 
 #include "fde.h"
 #include "comm.h"
+#include "fd_util.h"
 
 struct clt_app;
 

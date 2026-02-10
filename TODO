@@ -27,3 +27,21 @@ pre-2026
   a separate source file or util library here
 
 * bring in libdebug into this mess and start leveraging it here
+
+* look at the srv/clt (and udp srv/clt) connection representation;
+  there's a lot of duplicate work here which I think belongs in libiapp.
+
+* .. ie, ideally libiapp would take care of all of the socket and
+  file descriptor related shenanigans.
+
+* add unix pipe, unix socket stuff
+
+* actually flesh out the disk IO stuff via worker threads
+
+* figure out a 'thread queue' representation that contains that 'fde_head'
+  representation, or something similar to this.
+
+
+Ideally a demo app should be written which doesn't do any of its own
+socket, disk, filedescriptor, etc work by itself.
+

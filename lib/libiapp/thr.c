@@ -178,6 +178,8 @@ libiapp_thr_group_start(struct libiapp_thr_group *tg)
 bool
 libiapp_thr_group_stop(struct libiapp_thr_group *tg)
 {
+	int i;
+
 	for (i = 0; i < tg->worker_threads.n_threads; i++) {
 		struct libiapp_thr *t = tg->worker_threads.threads[i];
 

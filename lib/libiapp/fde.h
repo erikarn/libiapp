@@ -78,6 +78,7 @@ typedef enum {
 	FDE_T_SIGNAL,		/* XXX not yet implemented */
 	FDE_T_TIMER,		/* XXX not yet implemented */
 	FDE_T_AIO,		/* XXX not yet implemented */
+	FDE_T_USER,
 } fde_type;
 
 typedef enum {
@@ -154,5 +155,14 @@ extern	void fde_delete(struct fde_head *, struct fde *);
  * needs to be dispatched, then call the dispatch function.
  */
 extern	void fde_runloop(struct fde_head *, const struct timeval *timeout);
+
+/*
+ * Poke the given fde_head with the given fde to wake up for the given
+ * user event and run its callback.
+ *
+ * This crosses thread boundaries so threads can wake up other blocked
+ * threads to get work done.
+ */
+extern	int fde_ue_push(struct fde_head *fh, struct fde *f);
 
 #endif	/* __FDE_H__ */

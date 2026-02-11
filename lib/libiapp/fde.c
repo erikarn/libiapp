@@ -147,6 +147,25 @@ fde_create(struct fde_head *fh, int fd, fde_type t, fde_flags fl,
 		case FDE_T_TIMER:
 			/* Nothing to do here */
 			break;
+		case FDE_T_USER:
+			/*
+			 * Note: these are queued as one-shot
+			 * events with the unique identifier being
+			 * {ident,type} being {fde, EVFILT_USER}.
+			 *
+			 * Code directly using kqueue could do something
+			 * like keep a fixed ident (say a thread pointer)
+			 * but change the udata value, and have kqueue
+			 * handle that as an atomic update.  We track
+			 * everything manually so instead associate it with
+			 * the fde pointer.
+			 */
+			EV_SET(&f->kev, (uintptr_t) f, EVFILT_USER,
+			    fde_ev_flags(f, EV_ENABLE),
+			    0,
+			    0,
+			    f);
+			break;
 		default:
 			warn("%s: event type %d not implemented\n",
 			    __func__, t);
@@ -249,6 +268,85 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
 	TAILQ_REMOVE(&fh->f_head, f, node);
 }
 
+/*
+ * TODO: this adds the callout to be active, but it won't trigger.
+ * Triggering requires a separate EV_SET (NOTE_FFCOPY | NOTE_TRIGGER | 0x1,
+ *   EV_ONESHOT) with the same event data so it marks it as active and
+ * will then come ready in the mainloop and call the callback.
+ *
+ * TODO: ideally these would just stay active and just fire, rather than
+ * constantly be removed and re-added.  Figure that mess out later.
+ */
+static void
+fde_ue_add(struct fde_head *fh, struct fde *f)
+{
+
+	if (f->is_active)
+		return;
+
+	/*
+	 * Assume the event is already setup to be added.
+	 */
+	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
+	f->kev.flags |= fde_ev_flags(f, EV_ADD | EV_ENABLE);
+
+	fde_kq_push(fh, &f->kev);
+
+	f->is_active = 1;
+	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
+}
+
+static void
+fde_ue_delete(struct fde_head *fh, struct fde *f)
+{
+
+	if (! f->is_active)
+		return;
+
+	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
+	f->kev.flags |= EV_DELETE;
+
+	fde_kq_push(fh, &f->kev);
+
+	f->is_active = 0;
+	TAILQ_REMOVE(&fh->f_head, f, node);
+}
+
+/**
+ * Trigger the given userevent to fire.
+ *
+ * Unlike other calls, this call is designed to be used by
+ * other threads to immediately enqueue the given event
+ * into the kqueue FD.
+ *
+ * TODO: There's currently no guard rails around this being called
+ * and another thread getting ready to tear down its notification
+ * event.  For now just use this for thread to thread wakeups.
+ *
+ * TODO: this is not using atomics, mutexes, etc to avoid doing
+ * one of these per thread to thread wakeup.  This should be sorted
+ * out later once all of these pieces are proving to work.
+ *
+ * @returns 1 if success, 0 if failure
+ */
+int
+fde_ue_push(struct fde_head *fh, struct fde *f)
+{
+	struct kevent kev = { 0 };
+	int ret;
+
+	EV_SET(&kev, (uintptr_t) f, EVFILT_USER, EV_ENABLE | EV_ONESHOT,
+	    NOTE_FFCOPY | NOTE_TRIGGER | 0x1, 0, f);
+
+	ret = kevent(fh->kqfd, &kev, 1, NULL, 0, NULL);
+	if (ret != 1) {
+		warn("%s: kevent", __func__);
+		return (0);
+	}
+	return (1);
+}
+
+
 static void
 fde_cb_add(struct fde_head *fh, struct fde *f)
 {
@@ -297,6 +395,9 @@ fde_add(struct fde_head *fh, struct fde *f)
 			break;
 		case FDE_T_CALLBACK:
 			fde_cb_add(fh, f);
+			break;
+		case FDE_T_USER:
+			fde_ue_add(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
@@ -392,6 +493,9 @@ fde_delete(struct fde_head *fh, struct fde *f)
 			break;
 		case FDE_T_TIMER:
 			fde_t_delete(fh, f);
+			break;
+		case FDE_T_USER:
+			fde_ue_delete(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",

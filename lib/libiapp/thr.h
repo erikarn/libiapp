@@ -40,6 +40,7 @@ struct libiapp_thr {
 	bool active;
 
 	/* TODO: event for immediate wakeup */
+	struct fde *f_wakeup;
 
 	/* TODO: immediate deferred work */
 };

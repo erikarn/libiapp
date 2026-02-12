@@ -48,6 +48,16 @@
 #include "comm.h"
 #include "thr.h"
 
+static void
+libiapp_thr_wakeup_cb(int fd, struct fde *fde,
+    void *arg, fde_cb_status status)
+{
+	/*
+	 * Do nothing here; persistent event and fde_head will run
+	 * its own callback list.
+	 */
+}
+
 static struct libiapp_thr *
 libiapp_thr_create(void)
 {
@@ -66,6 +76,14 @@ libiapp_thr_create(void)
 		return (NULL);
 	}
 
+	/* immediate wakeup */
+	t->f_wakeup = fde_create(t->h, -1, FDE_T_USER, FDE_F_PERSIST,
+	    libiapp_thr_wakeup_cb, t);
+	if (t->f_wakeup == NULL) {
+		free(t);
+		return (NULL);
+	}
+
 	/* TODO: callback data / state */
 
 	/* TODO: deferred work queue */
@@ -78,6 +96,10 @@ libiapp_thr_destroy(struct libiapp_thr *t)
 {
 	if (t == NULL)
 		return;
+
+	/* wakeup data / state */
+	if (t->h != NULL && t->f_wakeup != NULL)
+		fde_free(t->h, t->f_wakeup);
 
 	/* TODO: callback data / state */
 
@@ -204,4 +226,15 @@ void
 libiapp_thr_group_free(struct libiapp_thr_group *tg)
 {
 	/* XXX TODO */
+}
+
+/**
+ * Wakeup a thread from another thread.
+ *
+ * This can be called from an arbitrary thread.
+ */
+void
+libiapp_thr_wakeup(struct libiapp_thr *t, struct libiapp_thr *target_thr)
+{
+	fde_ue_push(target_thr->h, target_thr->f_wakeup);
 }

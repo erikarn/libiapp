@@ -28,6 +28,6 @@
 
 .include <bsd.own.mk>
 
-SUBDIR=srv clt udp_srv udp_clt
+SUBDIR=srv clt udp_srv udp_clt thr
 
 .include <bsd.subdir.mk>

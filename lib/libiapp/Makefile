@@ -31,7 +31,7 @@ SRCS=comm.c fde.c netbuf.c shm_alloc.c disk.c iapp_cpu.c fd_util.c thr.c
 SRCS+=conn.c
 NO_MAN=1
 DEBUG_FLAGS=-O0 -g
-CFLAGS=-fPIC
+CFLAGS=-fPIC -I${.CURDIR}/../
 
 .include <bsd.lib.mk>
 

@@ -51,4 +51,6 @@ extern	bool libiapp_thr_group_stop(struct libiapp_thr_group *);
 extern	bool libiapp_thr_group_join(struct libiapp_thr_group *);
 extern	void libiapp_thr_group_free(struct libiapp_thr_group *);
 
+extern	void libiapp_thr_init(void);
+
 #endif

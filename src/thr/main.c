@@ -61,6 +61,8 @@ main(int argc, const char *argv[])
 {
 	struct libiapp_thr_group *tg;
 
+	libiapp_thr_init();
+
 	tg = libiapp_thr_group_create(8);
 	(void) libiapp_thr_group_start(tg);
 	(void) libiapp_thr_group_join(tg);

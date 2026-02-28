@@ -48,6 +48,10 @@
 #include "comm.h"
 #include "thr.h"
 
+#include "libidebug/debug.h"
+
+static debug_section_t thr_dbg = DEBUG_SECTION_INVALID;
+
 static void
 libiapp_thr_wakeup_cb(int fd, struct fde *fde,
     void *arg, fde_cb_status status)
@@ -237,4 +241,13 @@ void
 libiapp_thr_wakeup(struct libiapp_thr *t, struct libiapp_thr *target_thr)
 {
 	fde_ue_push(target_thr->h, target_thr->f_wakeup);
+}
+
+/**
+ * @brief Do startup initialisation
+ */
+void
+libiapp_thr_init(void)
+{
+	thr_dbg = debug_register("thr");
 }

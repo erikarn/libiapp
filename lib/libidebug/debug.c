@@ -45,6 +45,7 @@ char * debug_level_strs[DEBUG_SECTION_MAX];
 debug_mask_t debug_levels[DEBUG_TYPE_MAX][DEBUG_SECTION_MAX];
 
 static pthread_mutex_t debug_lock;
+static int initialised = 0;
 
 FILE *debug_file = NULL;
 char *debug_filename = NULL;
@@ -57,17 +58,25 @@ void
 debug_init(const char *progname)
 {
 
+	if (initialised == 1)
+		return;
+
 	pthread_mutex_init(&debug_lock, NULL);
 	bzero(debug_level_strs, sizeof(debug_level_strs));
 	bzero(debug_levels, sizeof(debug_levels));
 
 	openlog(progname, LOG_NDELAY | LOG_NOWAIT | LOG_PID, LOG_DAEMON);
+
+	initialised = 1;
 }
 
 void
 debug_shutdown(void)
 {
 	int i;
+
+	if (initialised == 0)
+		return;
 
 	/* XXX shutdown log files, etc */
 
@@ -79,6 +88,8 @@ debug_shutdown(void)
 	}
 	bzero(debug_levels, sizeof(debug_levels));
 	pthread_mutex_destroy(&debug_lock);
+
+	initialised = 0;
 }
 
 debug_section_t
@@ -109,7 +120,7 @@ debug_register(const char *dbgname)
 }
 
 void
-debug_setlevel(debug_section_t s, debug_type_t t, debug_mask_t mask)
+debug_setmask(debug_section_t s, debug_type_t t, debug_mask_t mask)
 {
 
 	if (t >= DEBUG_TYPE_MAX)
@@ -205,7 +216,7 @@ debug_file_reopen(void)
  * is matched.
  */
 void
-do_debug(int section, debug_mask_t mask, const char *fmt, ...)
+do_debug(int section, int level, debug_mask_t mask, const char *fmt, ...)
 {
 	va_list ap;
 	struct timeval tv;
@@ -272,7 +283,7 @@ debug_setmask_str(const char *dbg, debug_type_t t, debug_mask_t mask)
 	if (i >= DEBUG_SECTION_MAX)
 		return;		/* XXX return something useful? */
 
-	debug_setlevel(i, t, mask);
+	debug_setmask(i, t, mask);
 }
 
 int
@@ -312,6 +323,6 @@ debug_setmask_str2(const char *dbg, const char *dtype, debug_mask_t mask)
 	fprintf(stderr, "%s: setting debug '%s' (%d) to %llx\n",
 	    __func__, dbg, i, (unsigned long long) mask);
 
-	debug_setlevel(d_i, t_i, mask);
+	debug_setmask(d_i, t_i, mask);
 	return (0);
 }

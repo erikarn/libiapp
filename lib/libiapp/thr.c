@@ -52,6 +52,9 @@
 
 static debug_section_t thr_dbg = DEBUG_SECTION_INVALID;
 
+#define	LIBIAPP_THR_DBG_INIT		0x00000001
+#define	LIBIAPP_THR_DBG_RUN		0x00000002
+
 static void
 libiapp_thr_wakeup_cb(int fd, struct fde *fde,
     void *arg, fde_cb_status status)
@@ -119,12 +122,12 @@ libiapp_thr_start(void *arg)
 	struct timeval tv;
 	struct libiapp_thr *t = arg;
 
-	fprintf(stderr, "%s: %p: created\n", __func__, arg);
+	DEBUG(thr_dbg, 0, LIBIAPP_THR_DBG_INIT, "%s: %p: created\n", __func__, arg);
 
 	while (t->active == true) {
 		tv.tv_sec = 1;
 		tv.tv_usec = 0;
-		fprintf(stderr, "%s: %p: loop\n", __func__, arg);
+		DEBUG(thr_dbg, 0, LIBIAPP_THR_DBG_RUN, "%s: %p: loop\n", __func__, arg);
 		fde_runloop(t->h, &tv);
 	}
 
@@ -250,4 +253,6 @@ void
 libiapp_thr_init(void)
 {
 	thr_dbg = debug_register("thr");
+	debug_setmask(thr_dbg, DEBUG_TYPE_PRINT,
+	    LIBIAPP_THR_DBG_INIT | LIBIAPP_THR_DBG_RUN);
 }

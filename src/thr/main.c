@@ -56,10 +56,14 @@
 #include "thr.h"
 #include "fd_util.h"
 
+#include "libidebug/debug.h"
+
 int
 main(int argc, const char *argv[])
 {
 	struct libiapp_thr_group *tg;
+
+	debug_init(argv[0]);
 
 	libiapp_thr_init();
 

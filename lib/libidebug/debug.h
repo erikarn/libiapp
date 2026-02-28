@@ -58,15 +58,15 @@ extern	void debug_file_open(void);
 extern	void debug_file_close(void);
 extern	void debug_file_reopen(void);
 
-extern	void do_debug(int section, debug_mask_t mask, const char *fmt, ...)
-	    __attribute__ ((format (printf, 3, 4)));
+extern	void do_debug(int section, int level, debug_mask_t mask,
+	    const char *fmt, ...) __attribute__ ((format (printf, 4, 5)));
 
 #if 1
 #define	DEBUG(s, l, m, ...)						\
 	do {			\
-		if ((debug_levels[DEBUG_TYPE_PRINT][(s)] & (l)) ||	\
-		     (debug_levels[DEBUG_TYPE_LOG][(s)] & (l)) ||	\
-		     (debug_levels[DEBUG_TYPE_SYSLOG][(s)] & (l)))	\
+		if ((debug_levels[DEBUG_TYPE_PRINT][(s)] & (m)) ||	\
+		     (debug_levels[DEBUG_TYPE_LOG][(s)] & (m)) ||	\
+		     (debug_levels[DEBUG_TYPE_SYSLOG][(s)] & (m)))	\
 			do_debug(s, l, m, __VA_ARGS__);			\
 	} while (0)
 #else

@@ -55,7 +55,7 @@
 #include "comm.h"
 #include "iapp_cpu.h"
 
-#include "cfg.h"
+#include "conn_cfg.h"
 #include "thr.h"
 #include "conn.h"
 #include "fd_util.h"

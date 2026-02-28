@@ -51,7 +51,7 @@
 #include "comm.h"
 #include "iapp_cpu.h"
 
-#include "cfg.h"
+#include "conn_cfg.h"
 #include "conn.h"
 
 //#define	DO_DEBUG		1

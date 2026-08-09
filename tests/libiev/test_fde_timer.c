@@ -135,25 +135,13 @@ MU_TEST(test_timer_not_yet)
 	t = fde_create(tm_fh, -1, FDE_T_TIMER, 0, tm_cb, NULL);
 	mu_assert(t != NULL, "timer create failed");
 
-	/*
-	 * Set timer slightly in the future (50ms).
-	 * Use a shorter runloop timeout (5ms) so we return before
-	 * the timer fires.
-	 *
-	 * Note: fde_t_get_timeout does NOT cap the sleep to the
-	 * runloop timeout (known bug), so we must set the timer
-	 * close enough that the computed delta is still short.
-	 */
+	/* Set timer far in the future */
 	gettimeofday(&tv, NULL);
-	tv.tv_usec += 50000;
-	if (tv.tv_usec >= 1000000) {
-		tv.tv_sec++;
-		tv.tv_usec -= 1000000;
-	}
+	tv.tv_sec += 3600;
 	fde_add_timeout(tm_fh, t, &tv);
 
 	timeout.tv_sec = 0;
-	timeout.tv_usec = 5000;
+	timeout.tv_usec = 10000;
 	fde_runloop(tm_fh, &timeout);
 
 	mu_assert_int_eq(0, tm_fired_count);

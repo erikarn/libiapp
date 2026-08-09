@@ -119,11 +119,11 @@ MU_TEST(test_ue_push_returns_success)
 	ret = fde_ue_push(ue_fh, f);
 
 	/*
-	 * Known bug: fde_ue_push returns 0 even on success because
-	 * it checks kevent() ret != 1, but kevent() returns 0 when
-	 * called with no output buffer.  Document the actual behavior.
+	 * fde_ue_push should return 1 on success (kevent() returns 0
+	 * with no output buffer, which is not an error).
 	 */
-	mu_assert_int_eq(0, ret);
+	ret = fde_ue_push(ue_fh, f);
+	mu_assert_int_eq(1, ret);
 
 	fde_free(ue_fh, f);
 }

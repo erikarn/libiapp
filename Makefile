@@ -28,6 +28,6 @@
 
 .include <bsd.own.mk>
 
-SUBDIR=lib src
+SUBDIR=lib src tests
 
 .include <bsd.subdir.mk>

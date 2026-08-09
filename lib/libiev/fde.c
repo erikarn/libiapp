@@ -339,7 +339,7 @@ fde_ue_push(struct fde_head *fh, struct fde *f)
 	    NOTE_FFCOPY | NOTE_TRIGGER | 0x1, 0, f);
 
 	ret = kevent(fh->kqfd, &kev, 1, NULL, 0, NULL);
-	if (ret != 1) {
+	if (ret < 0) {
 		warn("%s: kevent", __func__);
 		return (0);
 	}
@@ -567,6 +567,10 @@ fde_t_get_timeout(struct fde_head *fh, const struct timeval *tv_now,
 	} else {
 		tv_sleep->tv_usec = f->tv.tv_usec - tv_now->tv_usec;
 	}
+
+	/* Cap to the caller-supplied maximum timeout */
+	if (timeval_cmp(tv_sleep, tv_timeout) > 0)
+		*tv_sleep = *tv_timeout;
 }
 
 static void

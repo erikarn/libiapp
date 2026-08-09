@@ -28,9 +28,9 @@
 
 PROG=udp_clt
 SRCS=udp_clt.c
-CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -O0
-LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/
-LDADD=-lpthread -liapp
+CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -I${.CURDIR}/../../lib/ -Wall -Werror
+LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/ -L${.OBJDIR}/../../lib/libiev
+LDADD=-lpthread -liapp -liev
 MK_MAN=no
 DEBUG_FLAGS=-g
 

@@ -49,7 +49,7 @@
 #include <sys/endian.h>
 #include <netinet/in.h>
 
-#include "fde.h"
+#include "libiev/fde.h"
 #include "shm_alloc.h"
 #include "netbuf.h"
 #include "comm.h"

@@ -40,7 +40,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#include "fde.h"
+#include "libiev/fde.h"
 #include "comm.h"
 #include "fd_util.h"
 
@@ -62,7 +62,7 @@ conn_recvmsg(int fd, struct fde_comm *fc, void *arg,
     struct fde_comm_udp_frame *fr, fde_comm_cb_status s, int xerrno)
 {
 	struct thr *r = arg;
-	struct conn *c;
+//	struct conn *c;
 
 	if (s != FDE_COMM_CB_COMPLETED) {
 		if (xerrno == EAGAIN || xerrno == EWOULDBLOCK)

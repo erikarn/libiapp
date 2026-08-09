@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013 Netflix, Inc.  All rights reserved.
+# Copyright (c) 2026 Adrian Chadd <adrian@FreeBSD.org>. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,12 +26,11 @@
 # SUCH DAMAGE.
 #
 
-PROG=srv
-SRCS=srv.c
-CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -I${.CURDIR}/../../lib/ -Wall -Werror
-LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/ -L${.OBJDIR}/../../lib/libiev
-LDADD=-lpthread -liapp -liev
-MK_MAN=no
-DEBUG_FLAGS=-g
+LIB=iev
+SRCS=fde.c
+NO_MAN=1
+DEBUG_FLAGS=-O0 -g
+CFLAGS=-fPIC -I${.CURDIR}/../
 
-.include <bsd.prog.mk>
+.include <bsd.lib.mk>
+

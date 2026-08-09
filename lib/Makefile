@@ -29,6 +29,6 @@
 #
 .include <bsd.own.mk>
 
-SUBDIR=libidebug libiapp
+SUBDIR=libidebug libiev libiapp
 
 .include <bsd.subdir.mk>

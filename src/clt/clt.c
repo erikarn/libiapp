@@ -45,7 +45,7 @@
 
 #include <netdb.h>
 
-#include "fde.h"
+#include "libiev/fde.h"
 #include "shm_alloc.h"
 #include "netbuf.h"
 #include "comm.h"
@@ -163,6 +163,7 @@ conn_close(struct conn *c)
 	 */
 }
 
+#if 0
 static void
 conn_write_cb(int fd, struct fde_comm *fc, void *arg,
     fde_comm_cb_status status, int nwritten)
@@ -216,6 +217,7 @@ conn_write_cb(int fd, struct fde_comm *fc, void *arg,
 	 */
 	comm_write(c->comm, c->w.nb, 0, iapp_netbuf_size(c->w.nb), conn_write_cb, c);
 }
+#endif
 
 static void
 conn_read_cb(int fd, struct fde_comm *cb, void *arg, fde_comm_cb_status s,
@@ -400,8 +402,8 @@ int
 thrclt_open_new_conn(struct clt_app *r)
 {
 	struct conn *c;
-	struct sockaddr_in sin;
-	socklen_t slen;
+//	struct sockaddr_in sin;
+//	socklen_t slen;
 	struct addrinfo *ai;
 	struct addrinfo ai_hints;
 	int rr;
@@ -516,7 +518,7 @@ thrclt_new(void *arg)
 {
 	struct clt_app *r = arg;
 	struct timeval tv;
-	struct conn *c;
+//	struct conn *c;
 
 	fprintf(stderr, "%s: %p: created\n", __func__, r);
 

@@ -1,8 +1,8 @@
 PROG=thr
 SRCS=main.c
 CFLAGS+= -I${.CURDIR}/../../lib/libiapp/ -I${.CURDIR}/../../lib -Wall -Werror
-LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/ -L${.OBJDIR}/../../lib/libidebug/
-LDADD=-lpthread -liapp -lidebug
+LDFLAGS+= -L${.OBJDIR}/../../lib/libiapp/ -L${.OBJDIR}/../../lib/libidebug/ -L${.OBJDIR}/../../lib/libiev
+LDADD=-lpthread -liapp -lidebug -liev
 MK_MAN=no
 DEBUG_FLAGS=-g
 

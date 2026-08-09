@@ -43,7 +43,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "fde.h"
+#include "libiev/fde.h"
 #include "comm.h"
 #include "fd_util.h"
 
@@ -178,7 +178,7 @@ thrclt_new(void *arg)
 {
 	struct clt_app *r = arg;
 	struct timeval tv;
-	struct conn *c;
+//	struct conn *c;
 	int fd, a;
 	struct sockaddr_in sin;
 

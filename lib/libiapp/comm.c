@@ -43,7 +43,7 @@
 
 #include "shm_alloc.h"
 #include "netbuf.h"
-#include "fde.h"
+#include "libiev/fde.h"
 #include "fd_util.h"
 #include "comm.h"
 

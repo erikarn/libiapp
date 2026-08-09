@@ -37,7 +37,7 @@
 #include <sys/time.h>
 #include <sys/queue.h>
 
-#include "fde.h"
+#include "libiev/fde.h"
 
 struct fde_head *
 fde_ctx_new(void)

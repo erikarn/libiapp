@@ -47,13 +47,17 @@ struct fde;
 
 #define	FDE_HEAD_MAXEVENTS	128
 
+struct fde;
+
+typedef TAILQ_HEAD(fde_h, fde) fde_head_t;
+
 /*
  * FD event queue.  One per thread.
  */
 struct fde_head {
-	TAILQ_HEAD(, fde) f_head;	/* list of all active entries */
-	TAILQ_HEAD(, fde) f_cb_head;	/* list of callbacks to perform */
-	TAILQ_HEAD(f_t, fde) f_t_head;	/* list of timer events to perform */
+	fde_head_t f_head;		/* list of all active entries */
+	fde_head_t f_cb_head;		/* list of callbacks to perform */
+	fde_head_t f_t_head;		/* list of timer events to perform */
 	int kqfd;
 	struct kevent kev_list[FDE_HEAD_MAXEVENTS];
 	struct {

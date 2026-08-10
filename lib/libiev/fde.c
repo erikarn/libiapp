@@ -465,7 +465,7 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 	}
 
 	/* Check if after last */
-	n = TAILQ_LAST(&fh->f_t_head, f_t);
+	n = TAILQ_LAST(&fh->f_t_head, fde_h);
 	if (timeval_cmp(tv, &n->tv) >= 0) {
 		TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
 		return;
@@ -506,16 +506,13 @@ fde_delete(struct fde_head *fh, struct fde *f)
 }
 
 static void
-fde_cb_runloop(struct fde_head *fh)
+fde_cb_run_single_loop(struct fde_head *fh, fde_head_t *h, uint32_t cur_genid,
+    fde_cb_status status)
 {
 
 	struct fde *f, *f_next;
-	uint32_t cur_genid;
 
-	cur_genid = fh->f_cb_genid;
-	fh->f_cb_genid++;		/* XXX This will wrap; it's ok */
-
-	while ((f = TAILQ_FIRST(&fh->f_cb_head)) != NULL) {
+	while ((f = TAILQ_FIRST(h)) != NULL) {
 		/*
 		 * No, don't process callbacks that we've just scheduled.
 		 */
@@ -523,9 +520,22 @@ fde_cb_runloop(struct fde_head *fh)
 			break;
 		f_next = TAILQ_NEXT(f, cb_node);
 		fde_delete(fh, f);
-		f->cb(f->fd, f, f->cbdata, FDE_CB_COMPLETED);
+		f->cb(f->fd, f, f->cbdata, status);
 		/* f may be free at this point */
 	}
+}
+
+static void
+fde_cb_runloop(struct fde_head *fh)
+{
+	struct fde *f, *f_next;
+	uint32_t cur_genid;
+
+	cur_genid = fh->f_cb_genid;
+	fh->f_cb_genid++;		/* XXX This will wrap; it's ok */
+
+	fde_cb_run_single_loop(fh, &fh->f_cb_head, cur_genid,
+	    FDE_CB_COMPLETED);
 }
 
 static void

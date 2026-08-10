@@ -42,6 +42,8 @@
  * I'll see about implementing this behaviour at a higher layer.
  */
 
+#include <stdbool.h>
+
 struct fde_head;
 struct fde;
 
@@ -59,6 +61,7 @@ struct fde_head {
 	fde_head_t f_cb_head;		/* list of callbacks to perform */
 	fde_head_t f_t_head;		/* list of timer events to perform */
 	int kqfd;
+	bool is_active;
 	struct kevent kev_list[FDE_HEAD_MAXEVENTS];
 	struct {
 		struct kevent kev_list[FDE_HEAD_MAXEVENTS];
@@ -120,6 +123,8 @@ extern	struct fde_head * fde_ctx_new(void);
  */
 extern	void fde_ctx_free(struct fde_head *);
 
+extern	void fde_ctx_shutdown(struct fde_head *);
+
 /*
  * Create an FD struct for a given FD.
  */
@@ -137,7 +142,7 @@ extern	void fde_free(struct fde_head *, struct fde *);
 /*
  * Add the event.
  */
-extern	void fde_add(struct fde_head *, struct fde *);
+extern	bool fde_add(struct fde_head *, struct fde *);
 
 /*
  * Add the event, but with a timeout.  This is only applicable
@@ -146,13 +151,13 @@ extern	void fde_add(struct fde_head *, struct fde *);
  *
  * The callout will occur at or after 'tv'.
  */
-extern	void fde_add_timeout(struct fde_head *, struct fde *,
+extern	bool fde_add_timeout(struct fde_head *, struct fde *,
 	    struct timeval *tv);
 
 /*
  * Remove the event.
  */
-extern	void fde_delete(struct fde_head *, struct fde *);
+extern	bool fde_delete(struct fde_head *, struct fde *);
 
 /*
  * Run the kqueue loop check.  This runs kevent() to check what

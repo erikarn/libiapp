@@ -60,15 +60,38 @@ fde_ctx_new(void)
 		free(fh);
 		return (NULL);
 	}
+
+	fh->is_active = true;
+
 	return (fh);
 }
 
+/**
+ * @brief Free the resources associted with this fde.
+ *
+ * Note: this won't call any shutdown handlers on events.
+ * They'll be effectively orphaned at this point.
+ */
 void
 fde_ctx_free(struct fde_head *fh)
 {
 
-	/* XXX TODO */
-	fprintf(stderr, "%s: not implemented\n", __func__);
+	if (fh == NULL)
+		return;
+	close(fh->kqfd);
+	fh->kqfd = -1;
+	free(fh);
+}
+
+/**
+ * @brief Mark the event loop at shutdown.
+ *
+ * This prevents further events from being scheduled.
+ */
+void
+fde_ctx_shutdown(struct fde_head *fh)
+{
+	fh->is_active = false;
 }
 
 static int
@@ -233,12 +256,15 @@ fde_kq_push(struct fde_head *fh, struct kevent *k)
 #endif
 }
 
-static void
+static bool
 fde_rw_add(struct fde_head *fh, struct fde *f)
 {
 
+	if (fh->is_active == false)
+		return false;
+
 	if (f->is_active)
-		return;
+		return true;
 
 	/*
 	 * Assume the event is already setup to be added.
@@ -250,14 +276,15 @@ fde_rw_add(struct fde_head *fh, struct fde *f)
 
 	f->is_active = 1;
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
+	return true;
 }
 
-static void
+static bool
 fde_rw_delete(struct fde_head *fh, struct fde *f)
 {
 
 	if (! f->is_active)
-		return;
+		return true;
 
 	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
 	f->kev.flags |= EV_DELETE;
@@ -266,6 +293,8 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
+
+	return true;
 }
 
 /*
@@ -277,12 +306,14 @@ fde_rw_delete(struct fde_head *fh, struct fde *f)
  * TODO: ideally these would just stay active and just fire, rather than
  * constantly be removed and re-added.  Figure that mess out later.
  */
-static void
+static bool
 fde_ue_add(struct fde_head *fh, struct fde *f)
 {
+	if (fh->is_active == false)
+		return false;
 
 	if (f->is_active)
-		return;
+		return true;
 
 	/*
 	 * Assume the event is already setup to be added.
@@ -294,14 +325,19 @@ fde_ue_add(struct fde_head *fh, struct fde *f)
 
 	f->is_active = 1;
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
+
+	return true;
 }
 
-static void
+static bool
 fde_ue_delete(struct fde_head *fh, struct fde *f)
 {
 
+	if (fh->is_active == false)
+		return false;
+
 	if (! f->is_active)
-		return;
+		return true;
 
 	f->kev.flags &= (EV_DELETE | EV_ADD | EV_CLEAR | EV_ONESHOT);
 	f->kev.flags |= EV_DELETE;
@@ -310,6 +346,8 @@ fde_ue_delete(struct fde_head *fh, struct fde *f)
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
+
+	return true;
 }
 
 /**
@@ -347,63 +385,80 @@ fde_ue_push(struct fde_head *fh, struct fde *f)
 }
 
 
-static void
+static bool
 fde_cb_add(struct fde_head *fh, struct fde *f)
 {
 
+	if (fh->is_active == false)
+		return false;
+
 	if (f->is_active)
-		return;
+		return true;
 
 	f->is_active = 1;
 	f->f_cb_genid = fh->f_cb_genid;
 	TAILQ_INSERT_TAIL(&fh->f_head, f, node);
 	TAILQ_INSERT_TAIL(&fh->f_cb_head, f, cb_node);
+
+	return true;
 }
 
-static void
+static bool
 fde_cb_delete(struct fde_head *fh, struct fde *f)
 {
+	if (fh->is_active == false)
+		return false;
 
 	if (! f->is_active)
-		return;
+		return true;
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
 	TAILQ_REMOVE(&fh->f_cb_head, f, cb_node);
+
+	return true;
 }
 
-static void
+static bool
 fde_t_delete(struct fde_head *fh, struct fde *f)
 {
+	if (fh->is_active == false)
+		return false;
 
 	if (! f->is_active)
-		return;
+		return true;
 
 	f->is_active = 0;
 	TAILQ_REMOVE(&fh->f_head, f, node);
 	TAILQ_REMOVE(&fh->f_t_head, f, cb_node);
+
+	return true;
 }
 
-void
+bool
 fde_add(struct fde_head *fh, struct fde *f)
 {
+
+	if (fh->is_active == false)
+		return false;
 
 	switch (f->f_type) {
 		case FDE_T_READ:
 		case FDE_T_WRITE:
-			fde_rw_add(fh, f);
+			return fde_rw_add(fh, f);
 			break;
 		case FDE_T_CALLBACK:
-			fde_cb_add(fh, f);
+			return fde_cb_add(fh, f);
 			break;
 		case FDE_T_USER:
-			fde_ue_add(fh, f);
+			return fde_ue_add(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
 			    __func__,
 			    f,
 			    f->f_type);
+			return false;
 	}
 }
 
@@ -422,10 +477,14 @@ timeval_cmp(const struct timeval *t1, const struct timeval *t2)
 	return ((l > r) - (l < r));
 }
 
-void
+bool
 fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 {
 	struct fde *n;
+
+	if (fh->is_active == false)
+		return false;
+
 
 	if (f->f_type != FDE_T_TIMER) {
 		fprintf(stderr, "%s: %p: wrong type (%d)\n",
@@ -436,7 +495,7 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 
 	/* XXX should I complain? */
 	if (f->is_active)
-		return;
+		return false;
 
 	f->is_active = 1;
 
@@ -449,7 +508,7 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 	/* Check if list is empty. */
 	if (TAILQ_FIRST(&fh->f_t_head) == NULL) {
 		TAILQ_INSERT_HEAD(&fh->f_t_head, f, cb_node);
-		return;
+		return true;
 	}
 
 	/* Check if before first */
@@ -461,14 +520,14 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 	n = TAILQ_FIRST(&fh->f_t_head);
 	if (timeval_cmp(tv, &n->tv) <= 0) {
 		TAILQ_INSERT_HEAD(&fh->f_t_head, f, cb_node);
-		return;
+		return true;
 	}
 
 	/* Check if after last */
 	n = TAILQ_LAST(&fh->f_t_head, fde_h);
 	if (timeval_cmp(tv, &n->tv) >= 0) {
 		TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
-		return;
+		return true;
 	}
 
 	/* Walk the list, insertion sort */
@@ -477,31 +536,34 @@ fde_add_timeout(struct fde_head *fh, struct fde *f, struct timeval *tv)
 			break;
 	}
 	TAILQ_INSERT_AFTER(&fh->f_t_head, n, f, cb_node);
+
+	return true;
 }
 
-void
+bool
 fde_delete(struct fde_head *fh, struct fde *f)
 {
 
 	switch (f->f_type) {
 		case FDE_T_READ:
 		case FDE_T_WRITE:
-			fde_rw_delete(fh, f);
+			return fde_rw_delete(fh, f);
 			break;
 		case FDE_T_CALLBACK:
-			fde_cb_delete(fh, f);
+			return fde_cb_delete(fh, f);
 			break;
 		case FDE_T_TIMER:
-			fde_t_delete(fh, f);
+			return fde_t_delete(fh, f);
 			break;
 		case FDE_T_USER:
-			fde_ue_delete(fh, f);
+			return fde_ue_delete(fh, f);
 			break;
 		default:
 			fprintf(stderr, "%s: %p: unknown type (%d)\n",
 			    __func__,
 			    f,
 			    f->f_type);
+			return false;
 	}
 }
 

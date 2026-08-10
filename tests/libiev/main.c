@@ -46,6 +46,7 @@ extern void fde_timer_suite(void);
 extern void fde_callback_suite(void);
 extern void fde_rw_suite(void);
 extern void fde_user_suite(void);
+extern void fde_shutdown_suite(void);
 
 int
 main(int argc, char *argv[])
@@ -63,6 +64,7 @@ main(int argc, char *argv[])
 	MU_RUN_SUITE(fde_callback_suite);
 	MU_RUN_SUITE(fde_rw_suite);
 	MU_RUN_SUITE(fde_user_suite);
+	MU_RUN_SUITE(fde_shutdown_suite);
 
 	MU_REPORT();
 

@@ -28,7 +28,7 @@
 PROG=test_libiev
 SRCS=test_fde_ctx.c test_fde_create.c test_fde_add_delete.c \
      test_fde_timer.c test_fde_callback.c test_fde_rw.c test_fde_user.c \
-     main.c
+     test_fde_shutdown.c main.c
 CFLAGS+=-I${.CURDIR}/../../lib/ -I${.CURDIR}/../../minunit/ -Wall -Werror
 LDFLAGS+=-L${.OBJDIR}/../../lib/libiev/
 LDADD=-liev
